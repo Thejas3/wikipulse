@@ -14,3 +14,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+
+# Local database
+*.db
+*.db-journal

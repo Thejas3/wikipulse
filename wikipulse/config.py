@@ -12,6 +12,9 @@ class Settings:
     contact: str = os.getenv("WIKIPULSE_CONTACT", "local development")
     stream_enabled: bool = os.getenv("WIKIPULSE_STREAM", "1") != "0"
     trending_ttl: int = int(os.getenv("WIKIPULSE_TRENDING_TTL", "1800"))
+    db_path: str = os.getenv("WIKIPULSE_DB", "wikipulse.db")
+    retention_days: int = int(os.getenv("WIKIPULSE_RETENTION_DAYS", "30"))
+    flush_interval: float = 10.0
 
     @property
     def user_agent(self) -> str:

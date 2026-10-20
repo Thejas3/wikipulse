@@ -218,7 +218,11 @@ function renderRateChart(stats) {
       ends[0].ly = mid - 7; ends[1].ly = mid + 7;
     }
     for (const s of SERIES) {
-      const d = points.map((p, i) => `${i ? "L" : "M"}${x(p.minute).toFixed(1)},${y(p[s.key]).toFixed(1)}`).join("");
+      // Break the line where minutes are missing (server was down) instead of bridging the gap.
+      const d = points.map((p, i) => {
+        const joined = i > 0 && p.minute - points[i - 1].minute === 60;
+        return `${joined ? "L" : "M"}${x(p.minute).toFixed(1)},${y(p[s.key]).toFixed(1)}`;
+      }).join("");
       svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
       const e = ends.find((o) => o.s === s);
       svg += `<circle cx="${x(last.minute)}" cy="${e.y}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
