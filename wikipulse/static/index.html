@@ -4,167 +4,310 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WikiPulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* Tokens: slate "dark tech" system; chart series validated against both card surfaces. */
   :root {
     color-scheme: light;
-    --page: #f9f9f7;
-    --surface: #fcfcfb;
-    --ink: #0b0b0b;
-    --ink-2: #52514e;
-    --muted: #898781;
-    --grid: #e1e0d9;
-    --axis: #c3c2b7;
-    --border: rgba(11, 11, 11, 0.10);
-    --up: #006300;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --card-2: #f8fafc;
+    --ink: #0f172a;
+    --ink-2: #334155;
+    --muted: #475569;
+    --faint: #64748b;
+    --line: #e2e8f0;
+    --line-strong: #cbd5e1;
+    --ring: #2563eb;
+    --live: #15803d;
+    --stale: #b45309;
+    --up: #15803d;
+    --down: #b91c1c;
     --human: #2a78d6;
     --bot: #eb6834;
     --bar: #2a78d6;
+    --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+    --sans: "Fira Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Fira Code", ui-monospace, "SF Mono", Menlo, monospace;
+    --radius: 12px;
+    --gap: 16px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --page: #0d0d0d;
-      --surface: #1a1a19;
-      --ink: #f0efec;
-      --ink-2: #c3c2b7;
-      --grid: #2c2c2a;
-      --axis: #383835;
-      --border: rgba(255, 255, 255, 0.10);
-      --up: #0ca30c;
+      --bg: #0f172a;
+      --card: #1b2336;
+      --card-2: #222b40;
+      --ink: #f8fafc;
+      --ink-2: #cbd5e1;
+      --muted: #94a3b8;
+      --faint: #8492a6;
+      --line: #2a3449;
+      --line-strong: #3a465e;
+      --ring: #60a5fa;
+      --live: #22c55e;
+      --stale: #f59e0b;
+      --up: #22c55e;
+      --down: #f87171;
       --human: #3987e5;
       --bot: #d95926;
       --bar: #3987e5;
+      --shadow: none;
     }
   }
+
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 24px 16px 48px;
-    background: var(--page);
+    padding: 0 16px 48px;
+    background: var(--bg);
     color: var(--ink);
-    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 15px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 1200px; margin: 0 auto; display: grid; gap: 16px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-  h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
-  h2 { margin: 0 0 12px; font-size: 15px; }
-  .sub { color: var(--ink-2); font-size: 13px; }
-  .status { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.live { background: #0ca30c; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
-  .grid { display: grid; gap: 16px; }
-  .tiles { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
-  .two { grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); }
-  .tile .label { color: var(--ink-2); font-size: 13px; }
-  .tile .value { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; }
-  .tile .hint { color: var(--muted); font-size: 12px; }
-
-  .legend { display: flex; gap: 16px; color: var(--ink-2); font-size: 13px; margin-bottom: 8px; }
-  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
-  .chart { position: relative; }
-  .chart svg { display: block; width: 100%; height: 240px; overflow: visible; }
-  .chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-  .tooltip {
-    position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); white-space: nowrap;
-  }
-  .tooltip b { display: block; margin-bottom: 2px; }
-  .tooltip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; background: var(--c); }
-  details { margin-top: 8px; color: var(--ink-2); font-size: 13px; }
-  details .scroll { max-height: 220px; overflow: auto; margin-top: 8px; }
-
-  .bars { display: grid; gap: 8px; }
-  .bar-row { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 8px; font-size: 13px; }
-  .bar-row .track { height: 14px; }
-  .bar-row .fill { height: 100%; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; }
-  .bar-row .n { text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
-  td { padding: 6px 8px; border-bottom: 1px solid var(--grid); }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .table-wrap { overflow-x: auto; }
+  main { max-width: 1280px; margin: 0 auto; display: grid; gap: var(--gap); }
   a { color: inherit; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .up { color: var(--up); }
-  .tag { font-size: 11px; color: var(--ink-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+  a:hover { text-decoration: underline; text-underline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .icon { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-  .tabs { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-  .tabs button, .tabs select {
-    font: inherit; font-size: 13px; color: var(--ink); background: transparent;
-    border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer;
+  /* ---- Top bar ---- */
+  .topbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 14px 0; margin-bottom: 4px;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: saturate(1.4) blur(8px);
+    border-bottom: 1px solid var(--line);
   }
-  .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
-  .tabs .spacer { flex: 1; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand svg { width: 28px; height: 28px; }
+  .brand h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand p { margin: 0; color: var(--muted); font-size: 13px; }
+  .controls { display: flex; align-items: center; gap: 8px; }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 999px; background: var(--card);
+    font-size: 13px; color: var(--ink-2);
+  }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .status[data-state="live"] .dot { background: var(--live); box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 60%, transparent); animation: pulse 2s infinite; }
+  .status[data-state="stale"] { border-color: var(--stale); }
+  .status[data-state="stale"] .dot { background: var(--stale); }
+  .status[data-state="paused"] .dot { background: var(--faint); }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 36px; min-width: 44px; padding: 0 12px;
+    font: 500 13px var(--sans); color: var(--ink); cursor: pointer;
+    background: var(--card); border: 1px solid var(--line-strong); border-radius: 8px;
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .btn:hover { background: var(--card-2); }
 
-  .feed { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; }
-  .feed li { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 13px; }
-  .feed .wiki { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ---- Cards & grid ---- */
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 18px; min-width: 0;
+  }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .card-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .card-head .meta { color: var(--muted); font-size: 13px; }
+  .grid { display: grid; gap: var(--gap); grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .span-12 { grid-column: span 12; }
+  .span-7 { grid-column: span 7; }
+  .span-5 { grid-column: span 5; }
+  @media (max-width: 960px) { .span-7, .span-5 { grid-column: span 12; } }
+
+  /* ---- KPI tiles ---- */
+  .tiles { display: grid; gap: var(--gap); grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 860px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tile .label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 500; }
+  .tile .value { font: 600 30px/1.15 var(--mono); letter-spacing: -0.02em; margin-top: 8px; }
+  .tile .hint { color: var(--faint); font-size: 12px; margin-top: 2px; }
+  .tile .split { display: flex; height: 6px; border-radius: 3px; overflow: hidden; gap: 2px; margin-top: 10px; background: var(--line); }
+  .tile .split span { display: block; height: 100%; }
+
+  /* ---- Chart ---- */
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--ink-2); font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 12px; height: 3px; border-radius: 2px; background: var(--c); }
+  .chart { position: relative; margin-top: 4px; }
+  .chart svg { display: block; width: 100%; height: 260px; overflow: visible; }
+  .chart text { fill: var(--faint); font: 11px var(--mono); }
+  .tooltip {
+    position: absolute; pointer-events: none; z-index: 2; white-space: nowrap;
+    background: var(--card); border: 1px solid var(--line-strong); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  }
+  .tooltip b { display: block; margin-bottom: 4px; font-weight: 600; }
+  .tooltip div { display: flex; align-items: center; gap: 6px; }
+  .tooltip i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
+  details { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  details summary { cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; }
+  details .scroll { max-height: 240px; overflow: auto; margin-top: 8px; }
+
+  /* ---- Tables, bars, feed ---- */
+  .table-wrap { overflow-x: auto; margin: 0 -4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 4px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  td.r, th.r { text-align: right; }
+  td.rank { color: var(--faint); width: 28px; }
+  td.title { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wiki-chip { font: 500 12px var(--mono); color: var(--ink-2); background: var(--card-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+  .tag { font: 500 11px var(--sans); color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+
+  .bars { display: grid; gap: 10px; }
+  .bar-row { display: grid; grid-template-columns: minmax(80px, 120px) 1fr 64px; align-items: center; gap: 10px; font-size: 13px; }
+  .bar-row .name { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-row .track { height: 16px; }
+  .bar-row .fill { height: 100%; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; transition: width 300ms ease; }
+  .bar-row .n { text-align: right; color: var(--ink-2); }
+
+  .seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 9px; }
+  .seg button {
+    min-height: 32px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer;
+    font: 500 13px var(--sans); color: var(--muted); background: transparent;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+  .select {
+    min-height: 36px; padding: 0 30px 0 10px; font: 500 13px var(--sans); color: var(--ink); cursor: pointer;
+    background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
+    border: 1px solid var(--line-strong); border-radius: 8px; appearance: none;
+  }
+  .trend-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .feed { list-style: none; margin: 0; padding: 0; max-height: 470px; overflow: auto; }
+  .feed li { display: grid; grid-template-columns: 116px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .feed li:last-child { border-bottom: 0; }
   .feed .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .feed .delta { font-variant-numeric: tabular-nums; color: var(--ink-2); }
-  .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+  .feed .delta { font-family: var(--mono); font-size: 12px; }
+  .feed .wiki-chip { overflow: hidden; text-overflow: ellipsis; }
+  .feed-note { color: var(--faint); font-size: 12px; }
+
+  .empty { color: var(--faint); font-size: 13px; padding: 16px 0; text-align: center; }
+  .skeleton { height: 14px; border-radius: 4px; background: linear-gradient(90deg, var(--line) 25%, var(--card-2) 50%, var(--line) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  footer { color: var(--faint); font-size: 12px; text-align: center; padding-top: 8px; }
+
+  @media (max-width: 480px) {
+    .brand p { display: none; }
+    .tile .value { font-size: 24px; }
+    .feed li { grid-template-columns: 88px minmax(0, 1fr) auto; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4M8 14h.01M16 14h.01"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></symbol>
+</svg>
+
 <main>
-  <header>
-    <div>
-      <h1>WikiPulse</h1>
-      <div class="sub">Live edits across every Wikimedia wiki, and what readers are flocking to.</div>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--human)"/><path d="M5 17h5l3-8 4 14 3-6h7" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <h1>WikiPulse</h1>
+        <p>Live edits across every Wikimedia wiki, and what readers are flocking to</p>
+      </div>
     </div>
-    <div class="status"><span class="dot" id="dot"></span><span id="status-text">Connecting…</span></div>
+    <div class="controls">
+      <div class="status" id="status" data-state="connecting" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span><span id="status-text">Connecting…</span>
+      </div>
+      <button class="btn" id="pause" type="button" aria-pressed="false" aria-label="Pause live updates">
+        <svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span>Pause</span>
+      </button>
+    </div>
   </header>
 
-  <section class="grid tiles">
-    <div class="card tile"><div class="label">Edits / minute</div><div class="value" id="t-rate">–</div><div class="hint">last 60 seconds</div></div>
-    <div class="card tile"><div class="label">Edits seen</div><div class="value" id="t-total">–</div><div class="hint" id="t-uptime">since server start</div></div>
-    <div class="card tile"><div class="label">Bot share</div><div class="value" id="t-bots">–</div><div class="hint">last 5 minutes</div></div>
-    <div class="card tile"><div class="label">Active wikis</div><div class="value" id="t-wikis">–</div><div class="hint">last 5 minutes</div></div>
+  <section class="tiles" aria-label="Key metrics">
+    <div class="card tile">
+      <div class="label"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg>Edits / minute</div>
+      <div class="value" id="t-rate">–</div><div class="hint">last 60 seconds</div>
+    </div>
+    <div class="card tile">
+      <div class="label"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg>Edits seen</div>
+      <div class="value" id="t-total">–</div><div class="hint" id="t-uptime">since server start</div>
+    </div>
+    <div class="card tile">
+      <div class="label"><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg>Bot share</div>
+      <div class="value" id="t-bots">–</div>
+      <div class="split" aria-hidden="true"><span id="split-h" style="background:var(--human);width:50%"></span><span id="split-b" style="background:var(--bot);width:50%"></span></div>
+      <div class="hint">last 5 minutes, human vs bot</div>
+    </div>
+    <div class="card tile">
+      <div class="label"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>Active wikis</div>
+      <div class="value" id="t-wikis">–</div><div class="hint">last 5 minutes</div>
+    </div>
   </section>
 
   <section class="card">
-    <h2>Edits per minute, last hour</h2>
-    <div class="legend"><span style="--c: var(--human)">Human</span><span style="--c: var(--bot)">Bot</span></div>
-    <div class="chart" id="rate-chart"></div>
+    <div class="card-head">
+      <h2>Edits per minute, last hour</h2>
+      <div class="legend" aria-hidden="true"><span><i style="--c:var(--human)"></i>Human</span><span><i style="--c:var(--bot)"></i>Bot</span></div>
+    </div>
+    <div class="chart" id="rate-chart"><div class="skeleton" style="height:260px"></div></div>
     <details><summary>Show as table</summary><div class="scroll"><table id="rate-table"></table></div></details>
   </section>
 
-  <section class="grid two">
-    <div class="card">
-      <h2>Most-edited articles, last 5 minutes</h2>
+  <section class="grid">
+    <div class="card span-7">
+      <div class="card-head"><h2>Most-edited articles</h2><span class="meta">Wikipedia, last 5 minutes</span></div>
       <div class="table-wrap"><table id="top-articles"></table></div>
     </div>
-    <div class="card">
-      <h2>Busiest wikis, last 5 minutes</h2>
+    <div class="card span-5">
+      <div class="card-head"><h2>Busiest wikis</h2><span class="meta">last 5 minutes</span></div>
       <div class="bars" id="top-wikis"></div>
     </div>
   </section>
 
-  <section class="grid two">
-    <div class="card">
-      <div class="tabs">
-        <h2 style="margin:0 8px 0 0">Trending</h2>
-        <button type="button" data-mode="rising" aria-pressed="true">Rising</button>
-        <button type="button" data-mode="top" aria-pressed="false">Most viewed</button>
-        <span class="spacer"></span>
-        <select id="project" aria-label="Wiki">
-          <option value="en.wikipedia">English</option>
-          <option value="de.wikipedia">German</option>
-          <option value="fr.wikipedia">French</option>
-          <option value="es.wikipedia">Spanish</option>
-          <option value="ja.wikipedia">Japanese</option>
-          <option value="hi.wikipedia">Hindi</option>
-        </select>
+  <section class="grid">
+    <div class="card span-7">
+      <div class="card-head">
+        <h2>Trending</h2>
+        <div class="trend-tools">
+          <div class="seg" role="group" aria-label="Trending view">
+            <button type="button" data-mode="rising" aria-pressed="true">Rising</button>
+            <button type="button" data-mode="top" aria-pressed="false">Most viewed</button>
+          </div>
+          <select class="select" id="project" aria-label="Wikipedia language">
+            <option value="en.wikipedia">English</option>
+            <option value="de.wikipedia">German</option>
+            <option value="fr.wikipedia">French</option>
+            <option value="es.wikipedia">Spanish</option>
+            <option value="ja.wikipedia">Japanese</option>
+            <option value="hi.wikipedia">Hindi</option>
+          </select>
+        </div>
       </div>
-      <div class="sub" id="trend-date" style="margin-bottom:8px"></div>
+      <div class="meta" id="trend-date" style="color:var(--muted);font-size:13px;margin:-6px 0 8px"></div>
       <div class="table-wrap"><table id="trending"></table></div>
     </div>
-    <div class="card">
-      <h2>Live feed</h2>
-      <ul class="feed" id="feed"></ul>
+    <div class="card span-5">
+      <div class="card-head"><h2>Live feed</h2><span class="feed-note" id="feed-note">Hover to hold</span></div>
+      <ul class="feed" id="feed" aria-label="Most recent edits"></ul>
     </div>
   </section>
+
+  <footer>Data: Wikimedia EventStreams and Pageviews API. Updates every 2 seconds.</footer>
 </main>
 
 <script>
@@ -172,6 +315,8 @@ const $ = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat();
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const timeLabel = (sec) => new Date(sec * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const clock = (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const POLL_MS = 2000, STALE_MS = 10000;
 
 // ---- Edits-per-minute line chart (SVG, two series, crosshair tooltip) ----
 const SERIES = [
@@ -190,7 +335,7 @@ function renderRateChart(stats) {
   const all = stats.per_minute;
   // Partial minutes (server started mid-minute, or the minute still in progress) would read as drops.
   const points = all.filter((p) => !p.partial);
-  const W = el.clientWidth || 600, H = 240, m = { t: 12, r: 52, b: 24, l: 40 };
+  const W = el.clientWidth || 600, H = 260, m = { t: 12, r: 56, b: 26, l: 44 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const end = Math.floor(stats.now / 60) * 60, start = end - (stats.history_minutes - 1) * 60;
   const max = niceMax(Math.max(1, ...points.flatMap((p) => [p.human, p.bot])));
@@ -200,8 +345,8 @@ function renderRateChart(stats) {
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Edits per minute over the last hour, human and bot">`;
   for (let i = 0; i <= 4; i++) {
     const v = (max / 4) * i, yy = y(v);
-    svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${yy}" y2="${yy}" stroke="${i ? "var(--grid)" : "var(--axis)"}" stroke-width="1"/>`;
-    svg += `<text x="${m.l - 6}" y="${yy + 4}" text-anchor="end">${fmt.format(v)}</text>`;
+    svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${yy}" y2="${yy}" stroke="${i ? "var(--line)" : "var(--line-strong)"}" stroke-width="1"/>`;
+    svg += `<text x="${m.l - 8}" y="${yy + 4}" text-anchor="end">${fmt.format(v)}</text>`;
   }
   const ticks = W < 480 ? [0, 30, 59] : [0, 15, 30, 45, 59];
   ticks.forEach((k) => {
@@ -225,13 +370,13 @@ function renderRateChart(stats) {
       }).join("");
       svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
       const e = ends.find((o) => o.s === s);
-      svg += `<circle cx="${x(last.minute)}" cy="${e.y}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
+      svg += `<circle cx="${x(last.minute)}" cy="${e.y}" r="4" fill="${s.color}" stroke="var(--card)" stroke-width="2"/>`;
       svg += `<text x="${x(last.minute) + 8}" y="${(e.ly ?? e.y) + 4}" style="fill:var(--ink-2)">${s.label}</text>`;
     }
   } else {
-    svg += `<text x="${m.l + iw / 2}" y="${m.t + ih / 2}" text-anchor="middle" style="fill:var(--ink-2);font-size:13px">Collecting data: the first full minute will appear shortly</text>`;
+    svg += `<text x="${m.l + iw / 2}" y="${m.t + ih / 2}" text-anchor="middle" style="fill:var(--muted);font-family:var(--sans);font-size:13px">Collecting data: the first full minute will appear shortly</text>`;
   }
-  svg += `<line id="xh" y1="${m.t}" y2="${m.t + ih}" stroke="var(--axis)" stroke-width="1" visibility="hidden"/>`;
+  svg += `<line id="xh" y1="${m.t}" y2="${m.t + ih}" stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="3 3" visibility="hidden"/>`;
   svg += `<rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" id="hit"/></svg>`;
   el.innerHTML = svg + `<div class="tooltip" hidden></div>`;
 
@@ -243,7 +388,7 @@ function renderRateChart(stats) {
     const p = points.reduce((a, b) => (Math.abs(b.minute - t) < Math.abs(a.minute - t) ? b : a));
     xh.setAttribute("x1", x(p.minute)); xh.setAttribute("x2", x(p.minute)); xh.setAttribute("visibility", "visible");
     tip.innerHTML = `<b>${timeLabel(p.minute)}</b>` +
-      SERIES.map((s) => `<div><i style="--c:${s.color}"></i>${s.label}: ${fmt.format(p[s.key])}</div>`).join("");
+      SERIES.map((s) => `<div><i style="--c:${s.color}"></i>${s.label}: <span class="num">${fmt.format(p[s.key])}</span></div>`).join("");
     tip.hidden = false;
     const left = (x(p.minute) / W) * r.width;
     tip.style.left = `${Math.max(0, Math.min(left + 12, r.width - tip.offsetWidth))}px`;
@@ -251,55 +396,86 @@ function renderRateChart(stats) {
   });
   hit.addEventListener("pointerleave", () => { tip.hidden = true; xh.setAttribute("visibility", "hidden"); });
 
-  $("rate-table").innerHTML = `<tr><th>Minute</th><th class="num">Human</th><th class="num">Bot</th></tr>` +
-    all.slice().reverse().map((p) => `<tr><td>${timeLabel(p.minute)}${p.partial ? " (partial)" : ""}</td><td class="num">${fmt.format(p.human)}</td><td class="num">${fmt.format(p.bot)}</td></tr>`).join("");
+  $("rate-table").innerHTML = `<tr><th>Minute</th><th class="r">Human</th><th class="r">Bot</th></tr>` +
+    all.slice().reverse().map((p) => `<tr><td>${timeLabel(p.minute)}${p.partial ? " (partial)" : ""}</td><td class="r num">${fmt.format(p.human)}</td><td class="r num">${fmt.format(p.bot)}</td></tr>`).join("");
 }
 
 // ---- Live stats ----
-let lastStats = null;
+let lastStats = null, paused = false, lastOk = 0, feedHeld = false;
 
 function renderStats(s) {
   $("t-rate").textContent = fmt.format(s.edits_per_minute);
   $("t-total").textContent = fmt.format(s.total);
-  $("t-uptime").textContent = `since server start (${Math.round(s.uptime / 60)} min ago)`;
-  $("t-bots").textContent = `${Math.round(s.bot_share * 100)}%`;
+  $("t-uptime").textContent = `since server start, ${Math.round(s.uptime / 60)} min ago`;
+  const bots = Math.round(s.bot_share * 100);
+  $("t-bots").textContent = `${bots}%`;
+  $("split-h").style.width = `${100 - bots}%`;
+  $("split-b").style.width = `${bots}%`;
   $("t-wikis").textContent = fmt.format(s.active_wikis);
 
   lastStats = s;
   renderRateChart(s);
 
   $("top-articles").innerHTML = s.top_articles.length
-    ? `<tr><th>Article</th><th>Wiki</th><th class="num">Edits</th></tr>` +
-      s.top_articles.map((a) => `<tr><td><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a></td><td>${esc(a.wiki)}</td><td class="num">${a.edits}</td></tr>`).join("")
+    ? `<tr><th>Article</th><th>Wiki</th><th class="r">Edits</th></tr>` +
+      s.top_articles.map((a) => `<tr><td class="title"><a href="${esc(a.url)}" target="_blank" rel="noopener" dir="auto">${esc(a.title)}</a></td><td><span class="wiki-chip">${esc(a.wiki)}</span></td><td class="r num">${a.edits}</td></tr>`).join("")
     : `<tr><td class="empty">Waiting for edits…</td></tr>`;
 
   const maxW = Math.max(1, ...s.top_wikis.map((w) => w.edits));
   $("top-wikis").innerHTML = s.top_wikis.length
-    ? s.top_wikis.map((w) => `<div class="bar-row" title="${esc(w.wiki)}: ${fmt.format(w.edits)} edits"><span>${esc(w.wiki)}</span><div class="track"><div class="fill" style="width:${(w.edits / maxW) * 100}%"></div></div><span class="n">${fmt.format(w.edits)}</span></div>`).join("")
+    ? s.top_wikis.map((w) => `<div class="bar-row" title="${esc(w.wiki)}: ${fmt.format(w.edits)} edits"><span class="name">${esc(w.wiki)}</span><div class="track"><div class="fill" style="width:${(w.edits / maxW) * 100}%"></div></div><span class="n num">${fmt.format(w.edits)}</span></div>`).join("")
     : `<div class="empty">Waiting for edits…</div>`;
 
-  $("feed").innerHTML = s.recent.length
-    ? s.recent.map((e) => {
-        const d = e.delta > 0 ? `+${fmt.format(e.delta)}` : fmt.format(e.delta);
-        return `<li><span class="wiki">${esc(e.wiki)}</span><span class="title"><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>${e.bot ? '<span class="tag">bot</span>' : ""}${e.kind === "new" ? '<span class="tag">new</span>' : ""}</span><span class="delta">${e.kind === "log" ? "log" : d}</span></li>`;
-      }).join("")
-    : `<li class="empty">Waiting for edits…</li>`;
+  // Hold the feed while the pointer or keyboard focus is inside it, so links stay clickable.
+  if (!feedHeld) {
+    $("feed").innerHTML = s.recent.length
+      ? s.recent.map((e) => {
+          const cls = e.delta > 0 ? "up" : e.delta < 0 ? "down" : "";
+          const d = e.kind === "log" ? "log" : (e.delta > 0 ? "+" : "") + fmt.format(e.delta);
+          return `<li><span class="wiki-chip">${esc(e.wiki)}</span><span class="title"><a href="${esc(e.url)}" target="_blank" rel="noopener" dir="auto">${esc(e.title)}</a>${e.bot ? '<span class="tag">bot</span>' : ""}${e.kind === "new" ? '<span class="tag">new</span>' : ""}</span><span class="delta ${cls}">${d}</span></li>`;
+        }).join("")
+      : `<li class="empty">Waiting for edits…</li>`;
+  }
+}
+
+function setStatus(state, text) {
+  $("status").dataset.state = state;
+  if ($("status-text").textContent !== text) $("status-text").textContent = text;
 }
 
 async function pollStats() {
+  if (paused || document.hidden) return; // no work while paused or the tab is hidden
   try {
     const r = await fetch("/api/stats");
     if (!r.ok) throw new Error(r.status);
     const s = await r.json();
     renderStats(s);
-    const live = s.edits_per_minute > 0;
-    $("dot").classList.toggle("live", live);
-    $("status-text").textContent = live ? "Live" : "Waiting for stream…";
+    lastOk = Date.now();
+    setStatus(s.edits_per_minute > 0 ? "live" : "stale",
+      s.edits_per_minute > 0 ? `Live · updated ${clock(new Date())}` : "Waiting for stream…");
   } catch {
-    $("dot").classList.remove("live");
-    $("status-text").textContent = "Server unreachable";
+    if (Date.now() - lastOk > STALE_MS) {
+      setStatus("stale", lastOk ? `Stale · last update ${clock(new Date(lastOk))}` : "Server unreachable");
+    }
   }
 }
+
+$("pause").addEventListener("click", () => {
+  paused = !paused;
+  const b = $("pause");
+  b.setAttribute("aria-pressed", String(paused));
+  b.setAttribute("aria-label", paused ? "Resume live updates" : "Pause live updates");
+  b.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-${paused ? "play" : "pause"}"/></svg><span>${paused ? "Resume" : "Pause"}</span>`;
+  if (paused) setStatus("paused", `Paused at ${clock(new Date())}`);
+  else pollStats();
+});
+
+const feed = $("feed");
+const hold = (v) => { feedHeld = v; $("feed-note").textContent = v ? "Held" : "Hover to hold"; };
+feed.addEventListener("pointerenter", () => hold(true));
+feed.addEventListener("pointerleave", () => hold(feed.contains(document.activeElement)));
+feed.addEventListener("focusin", () => hold(true));
+feed.addEventListener("focusout", (e) => hold(feed.contains(e.relatedTarget) || feed.matches(":hover")));
 
 // ---- Trending ----
 let trendMode = "rising", trendData = null;
@@ -308,18 +484,18 @@ function renderTrending() {
   if (!trendData) return;
   const rows = trendData[trendMode];
   const wikiHost = `${trendData.project}.org`;
-  $("trend-date").textContent = `Pageviews for ${trendData.date} (UTC), compared with the day before`;
-  $("trending").innerHTML = `<tr><th class="num">#</th><th>Article</th><th class="num">Views</th><th class="num">vs. day before</th></tr>` +
+  $("trend-date").textContent = `Pageviews for ${trendData.date} (UTC) vs. the day before`;
+  $("trending").innerHTML = `<tr><th class="r">#</th><th>Article</th><th class="r">Views</th><th class="r">Change</th></tr>` +
     rows.map((r, i) => {
       const change = r.change == null ? "–"
         : r.new ? `<span class="up">▲ ≥${r.change}×</span><span class="tag">new</span>`
-        : r.change >= 1 ? `<span class="up">▲ ${r.change}×</span>` : `▼ ${r.change}×`;
-      return `<tr><td class="num">${i + 1}</td><td><a href="https://${esc(wikiHost)}/wiki/${encodeURIComponent(r.title)}" target="_blank" rel="noopener">${esc(r.title.replaceAll("_", " "))}</a></td><td class="num">${fmt.format(r.views)}</td><td class="num">${change}</td></tr>`;
+        : r.change >= 1 ? `<span class="up">▲ ${r.change}×</span>` : `<span class="down">▼ ${r.change}×</span>`;
+      return `<tr><td class="r rank num">${i + 1}</td><td class="title"><a href="https://${esc(wikiHost)}/wiki/${encodeURIComponent(r.title)}" target="_blank" rel="noopener" dir="auto">${esc(r.title.replaceAll("_", " "))}</a></td><td class="r num">${fmt.format(r.views)}</td><td class="r num" style="white-space:nowrap">${change}</td></tr>`;
     }).join("");
 }
 
 async function loadTrending() {
-  $("trending").innerHTML = `<tr><td class="empty">Loading…</td></tr>`;
+  $("trending").innerHTML = Array.from({ length: 6 }, () => `<tr><td colspan="4"><div class="skeleton"></div></td></tr>`).join("");
   try {
     const r = await fetch(`/api/trending?project=${encodeURIComponent($("project").value)}`);
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
@@ -330,16 +506,17 @@ async function loadTrending() {
   }
 }
 
-document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
   trendMode = b.dataset.mode;
-  document.querySelectorAll(".tabs button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+  document.querySelectorAll(".seg button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
   renderTrending();
 }));
 $("project").addEventListener("change", loadTrending);
 window.addEventListener("resize", () => lastStats && renderRateChart(lastStats));
+document.addEventListener("visibilitychange", () => !document.hidden && pollStats());
 
 pollStats();
-setInterval(pollStats, 2000);
+setInterval(pollStats, POLL_MS);
 loadTrending();
 </script>
 </body>
