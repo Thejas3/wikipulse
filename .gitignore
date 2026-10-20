@@ -1,0 +1,9 @@
+# Secrets and local env files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Personal Claude Code settings
+.claude/settings.local.json
