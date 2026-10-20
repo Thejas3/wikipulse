@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Thejas3/wikipulse/contracts/recentchange.schema.json",
+  "title": "Wikimedia recentchange event (fields WikiPulse depends on)",
+  "description": "Validated by the producer. Events that fail go to wiki.recentchange.dlq. Extra fields are allowed so upstream additions don't break ingestion.",
+  "type": "object",
+  "required": ["meta", "type", "wiki", "title", "timestamp"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["id", "dt", "domain"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "dt": { "type": "string", "format": "date-time" },
+        "domain": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string" }
+      }
+    },
+    "type": { "enum": ["edit", "new", "log", "categorize", "external"] },
+    "wiki": { "type": "string", "minLength": 1 },
+    "namespace": { "type": "integer" },
+    "title": { "type": "string" },
+    "user": { "type": "string" },
+    "bot": { "type": "boolean" },
+    "minor": { "type": "boolean" },
+    "timestamp": { "type": "integer" },
+    "length": {
+      "type": "object",
+      "properties": {
+        "old": { "type": ["integer", "null"] },
+        "new": { "type": ["integer", "null"] }
+      }
+    },
+    "revision": {
+      "type": "object",
+      "properties": {
+        "old": { "type": ["integer", "null"] },
+        "new": { "type": ["integer", "null"] }
+      }
+    }
+  }
+}

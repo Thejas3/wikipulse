@@ -1,0 +1,5 @@
+httpx==0.28.1
+httpx-sse==0.4.0
+confluent-kafka==2.8.0
+jsonschema[format]==4.23.0
+prometheus-client==0.21.1
