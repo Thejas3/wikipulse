@@ -7,3 +7,10 @@
 
 # Personal Claude Code settings
 .claude/settings.local.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
