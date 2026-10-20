@@ -24,3 +24,5 @@ wikipulse = ["static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# streaming/tests need Spark and Java; they run in the streaming image (`make test-streaming`).
+testpaths = ["tests", "producer/tests"]

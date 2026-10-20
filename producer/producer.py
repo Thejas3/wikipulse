@@ -85,6 +85,10 @@ class Router:
         """Returns True if the event was valid."""
         try:
             event = json.loads(data)
+            if (event.get("meta") or {}).get("domain") == "canary":
+                # Wikimedia's own monitoring heartbeat: metadata only, not a change. Count and skip.
+                metrics.EVENTS.labels(result="canary").inc()
+                return True
             errors = sorted(self.validator.iter_errors(event), key=lambda e: list(e.path))
         except json.JSONDecodeError as exc:
             event, errors = None, [exc]

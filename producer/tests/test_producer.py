@@ -67,6 +67,13 @@ def test_invalid_event_goes_to_dlq_with_reason(validator, bad):
     assert payload["raw"] == bad and payload["error"]
 
 
+def test_canary_heartbeat_is_skipped_not_dead_lettered(validator):
+    kafka = FakeKafka()
+    canary = {"meta": {"id": "c1", "dt": "2026-10-20T03:15:00.000Z", "domain": "canary"}}
+    assert Router(kafka, validator, "raw", "dlq").route(json.dumps(canary))
+    assert kafka.sent == []
+
+
 def test_checkpoint_round_trip(tmp_path):
     cp = Checkpoint(tmp_path / "state" / "last_event_id")
     assert cp.load() is None

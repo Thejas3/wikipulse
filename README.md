@@ -6,8 +6,8 @@ A real-time data pipeline that streams every edit made across Wikipedia through 
 
 | Milestone (PRD §12) | State |
 |---|---|
-| 1. Producer and Kafka | **Built.** Resume test passed; 1-hour ingest run in progress |
-| 2. Bronze and Silver (Spark, Delta on MinIO) | Not started |
+| 1. Producer and Kafka | **Done.** 3.8 h continuous ingest, resume without gaps |
+| 2. Bronze and Silver (Spark, Delta on S3) | **Done.** Kill-everything test: 0 lost, 0 duplicates |
 | 3. Streaming Gold (windows, trending, spikes) | Not started |
 | 4. dbt models and data quality | Not started |
 | 5. Airflow and monitoring | Not started |
@@ -18,31 +18,46 @@ A real-time data pipeline that streams every edit made across Wikipedia through 
 
 | What | Result | How |
 |---|---|---|
-| Live event rate | ~31 events/sec (all wikis) | `make audit` over 132 s of ingest |
-| Gaps after a producer crash | 0 gaps over 10 s (largest 0.4 s) | SIGKILL, 30 s down, restart, `make audit` |
-| Replayed duplicates after that crash | 435 (removed later by Silver dedup) | same |
-| Schema rejects on live data | 0 of 500 sampled events | validated against `contracts/` |
+| Live event rate | 27.7 events/sec average (all wikis) | `make audit` over 4.1 h, 409k events |
+| Continuous ingest | 3.8 h, 12 dropped connections all resumed, 0 gaps over 10 s (largest 0.7 s) | `make audit` |
+| Data loss, producer + Bronze + Silver SIGKILLed together | **0** missing Kafka offsets in Bronze, **0** settled edits missing from Silver | `make kill-spark`, then `make audit-lake` |
+| Duplicates | **0** in Bronze (by offset) and Silver (by `meta.id`); 717 producer replays removed | `make audit-lake` |
+| Recovery after restart | 30 s to the first new Bronze batch (target < 2 min) | restart to first progress log |
+| Throughput headroom | 10–13.5k rows/sec Bronze catch-up, about 400× the live rate (target ≥ 5×) | catch-up batches of 50k |
+| Late events dropped by the watermark | 0 in every Silver batch so far | Spark progress logs |
+| Schema rejects on live data | 0 of 500 sampled; 6 canary heartbeats in 3.8 h (now skipped) | `contracts/` validation, DLQ |
 
 ## Architecture so far
 
 ```
-Wikimedia SSE feed ──► producer (schema check, resume ID) ──► Kafka
-                                   │                           ├─ wiki.recentchange.raw (3 partitions, keyed by wiki, 7-day retention)
-                                   └─ Prometheus :9108         └─ wiki.recentchange.dlq (rejected events + reason)
+Wikimedia SSE feed ─► producer ─► Kafka wiki.recentchange.raw ─► Spark bronze_job ─► bronze.recentchange (Delta)
+                       │  schema check,       (+ .dlq for rejects)    every event unchanged,     │
+                       │  resume ID                                   partitioned by ingest_date │
+                       └─ Prometheus :9108                                                       ▼
+                                                    silver.edits (Delta) ◄─ Spark silver_job: parse, Wikipedia
+                                                    partitioned by event_date   edits only, dedup on meta.id
+                                                                                within a 10-min watermark
+Delta tables live in the S3 bucket s3a://lakehouse on SeaweedFS.
 ```
 
-The producer only advances its saved resume point after Kafka has acknowledged every event up to it, so a crash replays a few events but never loses any. See [ADR 0001](docs/decisions/0001-kafka-between-feed-and-spark.md).
+- **Producer → Kafka, at-least-once:** the resume point only advances after Kafka acknowledges, so crashes replay but never skip ([ADR 0001](docs/decisions/0001-kafka-between-feed-and-spark.md)).
+- **Kafka → Bronze, exactly-once:** offsets live in the Spark checkpoint, and the Delta sink skips micro-batches it already committed.
+- **Bronze → Silver, deduplicated:** `dropDuplicatesWithinWatermark` on `meta.id` removes producer replays, with RocksDB holding the dedup state.
+- **Object store:** SeaweedFS instead of MinIO, because MinIO's images are no longer published ([ADR 0002](docs/decisions/0002-seaweedfs-instead-of-minio.md)).
+- **Silver partitioning:** by `event_date` only, to avoid a small-file explosion ([ADR 0003](docs/decisions/0003-silver-partitioned-by-date-only.md)).
 
 ## Run the pipeline
 
-Needs Docker (on macOS, [Colima](https://github.com/abiosoft/colima) works: `colima start --cpu 4 --memory 6`).
+Needs Docker (on macOS, [Colima](https://github.com/abiosoft/colima) works: `colima start --cpu 4 --memory 6`). The whole stack uses about 4.5 GB of memory.
 
 ```bash
-cp .env.example .env      # set WIKIPULSE_CONTACT (Wikimedia's User-Agent policy)
-make up                   # Kafka (KRaft, no ZooKeeper) + topic setup + producer
-make metrics              # events, reconnects, delivery errors, checkpoints, last event age
-make audit                # volume, duplicates and event-time gaps in the raw topic
+cp .env.example .env      # set WIKIPULSE_CONTACT and generate S3_ACCESS_KEY / S3_SECRET_KEY
+make up                   # Kafka, producer, SeaweedFS, Bronze and Silver jobs
+make metrics              # producer: events, reconnects, delivery errors, checkpoints, last event age
+make audit                # raw topic: volume, duplicates, event-time gaps
+make audit-lake           # Kafka → Bronze → Silver: lost and duplicate events
 make restart-producer     # kill and restart the producer (resume test)
+make kill-spark           # SIGKILL and restart both Spark jobs (exactly-once test)
 make down                 # stop; data volumes are kept
 ```
 
@@ -67,5 +82,6 @@ uvicorn wikipulse.app:app --reload --port 8001
 ## Tests
 
 ```bash
-make test    # preview app + producer unit tests
+make test             # preview app + producer unit tests (local venv)
+make test-streaming   # PySpark tests on fixture events, inside the streaming image
 ```
