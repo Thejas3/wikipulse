@@ -129,6 +129,11 @@ class ProgressLogger(StreamingQueryListener):
 
     def onQueryProgress(self, event):
         p = event.progress
+        try:
+            import metrics
+            metrics.record_progress(p)
+        except Exception:  # metrics must never break a query
+            log.exception("failed to record progress metrics")
         state = p.stateOperators[0] if p.stateOperators else None
         log.info("progress %s", json.dumps({
             "query": p.name,

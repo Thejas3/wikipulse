@@ -9,11 +9,13 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-COPY streaming/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
+# pyspark and the Maven jars first, so adding a Python package doesn't re-download the jars.
+RUN pip install --no-cache-dir pyspark==3.5.3
 COPY streaming/packages.py streaming/warmup.py ./
 RUN python warmup.py  # bake Delta, Kafka and S3A jars into the image so containers start offline
+
+COPY streaming/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY streaming/ ./
 CMD ["python", "pipeline.py"]

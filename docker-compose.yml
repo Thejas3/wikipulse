@@ -127,7 +127,95 @@ services:
       # Bound the JVM's off-heap pools so heap + off-heap + the Python driver stay under the
       # container limit (at 3 GB it was OOM-killed twice during the Silver rebuild).
       SPARK_DRIVER_JAVA_OPTS: ${SPARK_DRIVER_JAVA_OPTS:--XX:MaxDirectMemorySize=512m -XX:MaxMetaspaceSize=384m -XX:ReservedCodeCacheSize=128m}
+      METRICS_PORT: 9109
+    ports:
+      - "127.0.0.1:9109:9109"  # Prometheus metrics
     mem_limit: 3584m  # PRD §9 budgets 3 GB for Spark; +512 MB for the Python driver and S3 buffers
+
+  # ---- Orchestration (PRD §8): Airflow schedules dbt, exports, maintenance and quality ----
+  airflow-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:?set AIRFLOW_DB_PASSWORD in .env}
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db:/var/lib/postgresql/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      retries: 20
+
+  airflow:
+    build: ./airflow
+    image: wikipulse-airflow:dev
+    restart: unless-stopped
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set AIRFLOW_FERNET_KEY in .env}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:?set AIRFLOW_SECRET_KEY in .env}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__PARALLELISM: "4"
+      AIRFLOW__WEBSERVER__WORKERS: "1"  # memory: one gunicorn worker is plenty for one user
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    command:
+      - bash
+      - -c
+      - |
+        airflow db migrate &&
+        (airflow users create --username admin --password "$$AIRFLOW_ADMIN_PASSWORD" --role Admin \
+           --firstname Wiki --lastname Pulse --email admin@localhost 2>/dev/null || true) &&
+        (airflow scheduler &) &&
+        exec airflow webserver --port 8080
+    ports:
+      - "127.0.0.1:8080:8080"  # Airflow UI (admin / AIRFLOW_ADMIN_PASSWORD from .env)
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./dbt:/opt/wikipulse/dbt
+      - ./quality:/opt/wikipulse/quality
+      - ./dashboard:/opt/wikipulse/dashboard
+      - ./warehouse:/opt/wikipulse/warehouse
+    mem_limit: 2g  # tasks (dbt, GX, the DuckDB audit) run inside this container (LocalExecutor)
+
+  # ---- Monitoring (PRD §8): Prometheus scrapes the producer and the Spark app ----
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    mem_limit: 256m
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"  # Grafana (admin / GRAFANA_ADMIN_PASSWORD from .env)
+    mem_limit: 256m
 
   # One-off tools: `docker compose run --rm spark-tools pytest` or `... python audit_lake.py`.
   # Mounts the working copy so tests and audits use the current code without a rebuild.
@@ -147,3 +235,6 @@ volumes:
   kafka-data:
   producer-state:
   lake-data:
+  airflow-db:
+  prometheus-data:
+  grafana-data:

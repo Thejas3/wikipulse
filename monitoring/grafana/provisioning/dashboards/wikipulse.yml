@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: wikipulse
+    folder: WikiPulse
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

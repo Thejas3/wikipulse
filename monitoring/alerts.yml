@@ -1,0 +1,47 @@
+groups:
+  - name: wikipulse
+    rules:
+      # PRD §8: alert when consumer lag exceeds 5 minutes of data. Spark's Kafka source keeps
+      # offsets in its checkpoint, so lag (in records) comes from the pipeline's own metrics;
+      # dividing by the live event rate turns it into seconds of data.
+      - alert: BronzeLagOver5Minutes
+        expr: |
+          sum(wikipulse_stream_kafka_lag_records)
+            / clamp_min(sum(rate(wikipulse_producer_events_total{result="valid"}[5m])), 1) > 300
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Bronze is {{ $value | humanizeDuration }} of data behind Kafka"
+
+      - alert: StreamingQueryStalled
+        expr: time() - wikipulse_stream_last_progress_timestamp_seconds > 300
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Streaming query {{ $labels.query }} has not finished a batch in 5 minutes"
+
+      - alert: ProducerStale
+        expr: wikipulse_producer_last_event_age_seconds > 300
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Newest event from the feed is {{ $value | humanizeDuration }} old"
+
+      - alert: EndToEndLatencyP95Over60s
+        expr: histogram_quantile(0.95, sum by (le) (rate(wikipulse_e2e_latency_seconds_bucket[10m]))) > 60
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 edit-to-Gold latency is {{ $value | humanizeDuration }} (target < 60 s)"
+
+      - alert: DeadLetterEvents
+        expr: increase(wikipulse_producer_events_total{result="dlq"}[1h]) > 10
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} events failed schema validation in the last hour"
+
+      - alert: MaintenanceFailed
+        expr: increase(wikipulse_maintenance_runs_total{result="failed"}[1d]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Delta OPTIMIZE/VACUUM failed in the last day"

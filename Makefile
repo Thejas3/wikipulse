@@ -1,4 +1,4 @@
-.PHONY: up down logs test test-streaming audit audit-lake latency metrics restart-producer kill-spark reset-gold reset-silver
+.PHONY: up down logs test test-streaming audit audit-lake audit-quick latency metrics restart-producer kill-spark reset-gold reset-silver dbt quality export
 
 up:  ## start Kafka, the producer, the object store, and the Spark pipeline
 	docker compose up -d --build
@@ -42,3 +42,15 @@ reset-silver:  ## drop Silver and Gold and rebuild both from Bronze (after Silve
 	docker compose stop streaming
 	docker compose run --rm spark-tools python reset_tables.py silver
 	docker compose up -d --build streaming
+
+audit-quick:  ## DuckDB lake audit (no Spark); what the hourly lake_audit DAG runs
+	set -a && . ./.env && set +a && quality/.venv/bin/python quality/audit_lake.py
+
+dbt:  ## dbt build (models, snapshot, tests) against the local warehouse
+	cd dbt && set -a && . ../.env && set +a && ../.venv/bin/dbt build --profiles-dir .
+
+quality:  ## Great Expectations suites
+	cd quality/great_expectations && ../.venv/bin/python run_checks.py
+
+export:  ## dashboard Parquet snapshots + manifest.json into dashboard/data
+	set -a && . ./.env && set +a && quality/.venv/bin/python dashboard/export.py --out dashboard/data

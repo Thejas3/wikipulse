@@ -115,6 +115,7 @@ class Gold:
         # Latency rows are buffered and written once a minute: a Delta commit per batch added
         # 2-4 s to every Gold batch. A crash loses at most the buffered measurements, not data.
         self.latency_buffer: list[tuple] = []
+        self.compacted_hours: set[datetime] = set()
 
     def ensure_tables(self) -> None:
         """Create the Gold tables (empty) so MERGEs always have a target."""
@@ -212,15 +213,39 @@ class Gold:
             lap("spikes")
 
             visible_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            self.latency_buffer.extend(
-                (batch_id, visible_at, r.le_seconds, r.events)
-                for r in latency_histogram(batch, visible_at).collect())
+            latency_rows = [(r.le_seconds, r.events) for r in latency_histogram(batch, visible_at).collect()]
+            self.latency_buffer.extend((batch_id, visible_at, le, n) for le, n in latency_rows)
+            try:
+                import metrics
+                metrics.record_latency(latency_rows)
+            except Exception:
+                log.exception("failed to record latency metrics")
             if batch_id % LATENCY_FLUSH_EVERY == 0:
                 self._flush_latency(batch_id)
             lap("latency")
+            self._compact_closed_hour()
+            lap("compact")
             log.info("batch timings %s", json.dumps({"batch": batch_id, "rows": stats.n, **timings}))
         finally:
             batch.unpersist()
+
+    def _compact_closed_hour(self) -> None:
+        """OPTIMIZE the hourly partition that closed 2 hours ago, once.
+
+        Every MERGE adds files to the current hour, so an hour ends with hundreds of small files,
+        and the spike baseline scans 25 hours of them. Daily OPTIMIZE (ADR 0006) is too slow
+        for that, so Gold compacts each hour once no MERGE can touch it. It runs in Gold's own
+        thread, between batches, so it never races Gold's writes.
+        """
+        hour = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)).replace(
+            minute=0, second=0, microsecond=0)
+        if hour in self.compacted_hours:
+            return
+        for table in ("edits_per_minute", "trending_pages"):
+            self.spark.sql(f"OPTIMIZE delta.`{self.paths[table]}` "
+                           f"WHERE window_hour = timestamp'{hour:%Y-%m-%d %H}:00:00'").collect()
+        self.compacted_hours.add(hour)
+        log.info("compacted gold hour %s", hour)
 
     def _flush_latency(self, batch_id: int) -> None:
         if not self.latency_buffer:

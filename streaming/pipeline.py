@@ -12,8 +12,10 @@ import time
 
 import bronze_job
 import gold_job
+import metrics
 import silver_job
 from common import Config, ProgressLogger, build_spark, ensure_bucket, setup_logging
+from maintenance import MaintenanceWorker
 
 log = logging.getLogger("pipeline")
 
@@ -35,6 +37,7 @@ def main() -> None:
     ensure_bucket(config)
     spark = build_spark("wikipulse-streaming", config)
     spark.streams.addListener(ProgressLogger())
+    metrics.serve()
 
     # Silver and Gold set session-level Delta idempotency confs (txnAppId/txnVersion) around
     # each MERGE. Separate sessions (same SparkContext) keep those confs out of each other's
@@ -42,6 +45,7 @@ def main() -> None:
     queries = [in_pool(spark, "bronze", bronze_job.start, config),
                in_pool(spark.newSession(), "silver", silver_job.start, config),
                in_pool(spark.newSession(), "gold", gold_job.start, config)]
+    MaintenanceWorker(spark.newSession(), config).start()  # runs OPTIMIZE/VACUUM on Airflow's request
 
     # awaitAnyTermination() only watches one session's queries, and Gold has its own session,
     # so poll all three: the first one to stop ends the process.
