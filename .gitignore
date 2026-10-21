@@ -33,3 +33,6 @@ quality/great_expectations/gx/
 
 # Exported dashboard snapshots (published by the export job, not committed)
 dashboard/data/
+
+# Deploy key and pinned host keys for publishing the dashboard snapshot
+secrets/

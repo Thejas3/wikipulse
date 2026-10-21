@@ -168,6 +168,9 @@ services:
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
+      # Dashboard publishing to the `data` branch (empty = keep snapshots local).
+      DATA_BRANCH_REMOTE: ${DATA_BRANCH_REMOTE:-}
+      GIT_SSH_COMMAND: ssh -i /opt/wikipulse/secrets/deploy_key -o IdentitiesOnly=yes -o UserKnownHostsFile=/opt/wikipulse/secrets/known_hosts -o StrictHostKeyChecking=yes
     command:
       - bash
       - -c
@@ -185,6 +188,8 @@ services:
       - ./quality:/opt/wikipulse/quality
       - ./dashboard:/opt/wikipulse/dashboard
       - ./warehouse:/opt/wikipulse/warehouse
+      - ./secrets:/opt/wikipulse/secrets:ro
+      - ./.github/workflows/pages.yml:/opt/wikipulse/.github/workflows/pages.yml:ro
     mem_limit: 2g  # tasks (dbt, GX, the DuckDB audit) run inside this container (LocalExecutor)
 
   # ---- Monitoring (PRD §8): Prometheus scrapes the producer and the Spark app ----

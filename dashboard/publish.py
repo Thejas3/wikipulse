@@ -7,7 +7,8 @@ Two targets, chosen by which settings exist (in .env / Airflow's environment):
                   sees a manifest pointing at files that aren't there yet.
   data branch     DATA_BRANCH_REMOTE (a git URL this machine can push to, e.g. with a deploy key)
                   Force-pushes a single commit with dashboard/data/ to the `data` branch, so the
-                  repo history doesn't grow; the pages workflow redeploys from it.
+                  repo history doesn't grow. The commit also carries .github/workflows/pages.yml:
+                  GitHub only runs a push-triggered workflow if its file is on the pushed branch.
 
 With neither set it does nothing and says so (local development).
 
@@ -48,12 +49,17 @@ def publish_branch(data: Path) -> None:
         target.mkdir(parents=True)
         for f in sorted(data.glob("*.parquet")) + [data / "manifest.json"]:
             (target / f.name).write_bytes(f.read_bytes())
+        workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pages.yml"
+        (repo / ".github" / "workflows").mkdir(parents=True)
+        (repo / ".github" / "workflows" / "pages.yml").write_bytes(workflow.read_bytes())
 
         def git(*args):
-            subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+            result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+            if result.returncode:  # surface git's own message, e.g. a rejected deploy key
+                raise RuntimeError(f"git {args[0]} failed: {result.stderr.strip()}")
 
         git("init", "-q", "-b", "data")
-        git("add", "dashboard/data")
+        git("add", "dashboard/data", ".github")
         git("-c", "user.name=wikipulse-export", "-c", "user.email=export@wikipulse.invalid",
             "commit", "-q", "-m", "Dashboard snapshot")
         git("push", "-q", "--force", remote, "data:data")

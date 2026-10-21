@@ -3,6 +3,8 @@ FROM apache/airflow:2.10.5-python3.11
 # dbt and Great Expectations each get their own virtualenv: their dependency pins
 # (protobuf, pydantic, ...) would otherwise fight with Airflow's constraints.
 USER root
+# git: dashboard/publish.py force-pushes snapshots to the `data` branch.
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 RUN python -m venv /opt/dbt-venv && python -m venv /opt/quality-venv \
     && chown -R airflow: /opt/dbt-venv /opt/quality-venv
 USER airflow
