@@ -215,7 +215,7 @@ services:
       - grafana-data:/var/lib/grafana
     ports:
       - "127.0.0.1:3000:3000"  # Grafana (admin / GRAFANA_ADMIN_PASSWORD from .env)
-    mem_limit: 256m
+    mem_limit: 384m  # idles near 190 MB
 
   # One-off tools: `docker compose run --rm spark-tools pytest` or `... python audit_lake.py`.
   # Mounts the working copy so tests and audits use the current code without a rebuild.
