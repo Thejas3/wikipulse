@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          pip install -e ".[dev]" -r producer/requirements.txt ruff==0.8.6
+      - name: Lint
+        run: ruff check .
+      - name: Unit tests (preview app, producer)
+        run: pytest -q
+
+  dbt:
+    runs-on: ubuntu-latest
+    env:
+      # Point the lake sources at the Parquet samples in dbt/sample/ instead of S3.
+      SILVER_EDITS_SOURCE: read_parquet('sample/silver_edits.parquet')
+      GOLD_EDITS_PER_MINUTE_SOURCE: read_parquet('sample/gold_edits_per_minute.parquet')
+      GOLD_TRENDING_PAGES_SOURCE: read_parquet('sample/gold_trending_pages.parquet')
+      GOLD_SPIKES_SOURCE: read_parquet('sample/gold_spikes.parquet')
+      DBT_DUCKDB_PATH: ci.duckdb
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install dbt-core==1.9.4 dbt-duckdb==1.9.3 duckdb==1.2.2
+      - name: dbt build on sample data
+        run: dbt build --profiles-dir . --target ci
+
+  streaming:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Cache Spark packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ivy
+          key: ivy-${{ hashFiles('streaming/packages.py') }}
+      - run: pip install -r streaming/requirements.txt
+      - name: PySpark unit tests
+        working-directory: streaming
+        env:
+          SPARK_IVY_DIR: ${{ github.workspace }}/.ivy
+        run: pytest -q tests

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WikiPulse</title>
+<meta name="description" content="What the world is editing on Wikipedia right now: live edits, trending articles, spikes and likely vandalism.">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/hyparquet@1.31.2/+esm">
+<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.16/+esm">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f1f5f9; --card: #ffffff; --card-2: #f8fafc;
+    --ink: #0f172a; --ink-2: #334155; --muted: #475569; --faint: #64748b;
+    --line: #e2e8f0; --line-strong: #cbd5e1; --ring: #2563eb;
+    --good: #15803d; --warn: #b45309; --bad: #b91c1c;
+    --human: #2a78d6; --bot: #eb6834; --bar: #2a78d6;
+    --shadow: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.04);
+    --sans: "Fira Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "Fira Code", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a; --card: #1b2336; --card-2: #222b40;
+      --ink: #f8fafc; --ink-2: #cbd5e1; --muted: #94a3b8; --faint: #8492a6;
+      --line: #2a3449; --line-strong: #3a465e; --ring: #60a5fa;
+      --good: #22c55e; --warn: #f59e0b; --bad: #f87171;
+      --human: #3987e5; --bot: #d95926; --bar: #3987e5; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0 16px 48px; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  main { max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 18px 0 6px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand svg { width: 34px; height: 34px; flex: none; }
+  .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand p { margin: 0; color: var(--muted); font-size: 13px; }
+  .asof { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 13px; color: var(--ink-2); }
+  .asof .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .asof[data-state="fresh"] .dot { background: var(--good); }
+  .asof[data-state="stale"] { border-color: var(--warn); color: var(--warn); }
+  .asof[data-state="stale"] .dot { background: var(--warn); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 18px; min-width: 0; }
+  .card h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .s12 { grid-column: span 12; } .s8 { grid-column: span 8; } .s7 { grid-column: span 7; } .s5 { grid-column: span 5; } .s4 { grid-column: span 4; }
+  @media (max-width: 960px) { .s8, .s7, .s5, .s4 { grid-column: span 12; } }
+
+  .tiles { display: grid; gap: 16px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  @media (max-width: 960px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tile .label { color: var(--muted); font-size: 13px; font-weight: 500; }
+  .tile .value { font: 600 28px/1.15 var(--mono); letter-spacing: -0.02em; margin-top: 6px; }
+  .tile .hint { color: var(--faint); font-size: 12px; margin-top: 2px; }
+
+  .legend { display: flex; gap: 16px; color: var(--ink-2); font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 12px; height: 3px; border-radius: 2px; background: var(--c); }
+  .plot svg { overflow: visible; }
+  .plot figure { margin: 0; }
+  [aria-busy="true"] { min-height: 120px; background: linear-gradient(90deg, var(--line) 25%, var(--card-2) 50%, var(--line) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 8px; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  .table-wrap { overflow-x: auto; margin: 0 -4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 9px 4px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  td.r, th.r { text-align: right; }
+  td.title { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { font: 500 12px var(--mono); color: var(--ink-2); background: var(--card-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+  .sig { font: 500 11px var(--sans); color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; margin-right: 4px; white-space: nowrap; }
+  .score { display: inline-block; min-width: 34px; text-align: center; font: 600 13px var(--mono); border-radius: 6px; padding: 1px 6px; }
+  .score.hi { color: #fff; background: var(--bad); } .score.mid { color: var(--ink); background: color-mix(in srgb, var(--warn) 30%, transparent); }
+  .score.lo { color: var(--ink-2); background: var(--card-2); }
+
+  dl.health { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; font-size: 14px; }
+  dl.health dt { color: var(--muted); }
+  dl.health dd { margin: 0; font-family: var(--mono); }
+  .ok { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .empty { color: var(--faint); font-size: 13px; padding: 16px 0; text-align: center; }
+  .error { color: var(--bad); }
+  .sql { display: grid; gap: 8px; margin-bottom: 12px; }
+  .sql code { font: 12px var(--mono); color: var(--ink-2); }
+  .sql textarea { width: 100%; font: 13px/1.5 var(--mono); color: var(--ink); background: var(--card-2); border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px; resize: vertical; }
+  .sql-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .sql button { min-height: 36px; padding: 0 16px; font: 600 13px var(--sans); color: #fff; background: var(--human); border: 0; border-radius: 8px; cursor: pointer; }
+  .sql button:disabled { opacity: .6; cursor: progress; }
+  footer { color: var(--faint); font-size: 12px; text-align: center; padding-top: 8px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--human)"/><path d="M5 17h5l3-8 4 14 3-6h7" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <h1>WikiPulse</h1>
+        <p>What the world is editing on Wikipedia, refreshed every 15 minutes</p>
+      </div>
+    </div>
+    <div class="asof" id="asof" data-state="loading" role="status"><span class="dot" aria-hidden="true"></span><span id="asof-text">Loading data…</span></div>
+  </header>
+
+  <section class="tiles" aria-label="Key numbers">
+    <div class="card tile"><div class="label">Edits, last hour</div><div class="value" id="k-edits">–</div><div class="hint">Wikipedia, all languages</div></div>
+    <div class="card tile"><div class="label">Bot share, last hour</div><div class="value" id="k-bots">–</div><div class="hint">of those edits</div></div>
+    <div class="card tile"><div class="label">Spikes, last 24 h</div><div class="value" id="k-spikes">–</div><div class="hint">pages with a sudden burst</div></div>
+    <div class="card tile"><div class="label">Edit → dashboard data</div><div class="value" id="k-latency">–</div><div class="hint">p95 end-to-end latency</div></div>
+    <div class="card tile"><div class="label">Data tests</div><div class="value" id="k-tests">–</div><div class="hint" id="k-tests-hint">last dbt run</div></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Edits per minute, last 6 hours</h2>
+      <div class="legend" aria-hidden="true"><span><i style="--c:var(--human)"></i>Human</span><span><i style="--c:var(--bot)"></i>Bot</span></div>
+    </div>
+    <div class="plot" id="chart-epm" aria-busy="true"></div>
+  </section>
+
+  <section class="grid">
+    <div class="card s7">
+      <div class="card-head"><h2>Trending now</h2><span class="meta">most-edited articles, last 15 minutes</span></div>
+      <div class="table-wrap"><table id="t-trending" aria-busy="true"></table></div>
+    </div>
+    <div class="card s5">
+      <div class="card-head"><h2>Language share</h2><span class="meta">edits today (UTC)</span></div>
+      <div class="plot" id="chart-lang" aria-busy="true"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card s7">
+      <div class="card-head"><h2>Spikes</h2><span class="meta">≥ 5 edits by ≥ 2 people in 5 minutes, z > 3 vs. the page's last 24 h</span></div>
+      <div class="table-wrap"><table id="t-spikes" aria-busy="true"></table></div>
+    </div>
+    <div class="card s5">
+      <div class="card-head"><h2>Pipeline health</h2><span class="meta">from the export manifest</span></div>
+      <dl class="health" id="health"></dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Possible vandalism, last hour</h2><span class="meta">heuristic score 0–100: anonymous editor, blanking, revert war, edit burst</span></div>
+    <div class="table-wrap"><table id="t-vandalism" aria-busy="true"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Explore with SQL</h2><span class="meta">DuckDB-WASM runs in your browser; it loads on your first query (~7 MB)</span></div>
+    <form id="sql-form" class="sql">
+      <label for="sql" class="meta">Tables: <code>edits_per_minute.parquet</code>, <code>trending.parquet</code>, <code>spikes.parquet</code>, <code>language_share.parquet</code>, <code>vandalism.parquet</code></label>
+      <textarea id="sql" rows="4" spellcheck="false">select wiki, count(*) as spikes, max(z_score) as max_z
+from 'spikes.parquet' group by wiki order by spikes desc limit 10</textarea>
+      <div class="sql-actions"><button type="submit">Run query</button><span id="sql-status" class="meta" role="status"></span></div>
+    </form>
+    <div class="table-wrap"><table id="sql-out"></table></div>
+  </section>
+
+  <footer>
+    Data: Wikimedia EventStreams, processed through Kafka, Spark Structured Streaming and Delta Lake; queried in your browser with DuckDB-WASM.
+  </footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

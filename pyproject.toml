@@ -26,3 +26,19 @@ wikipulse = ["static/*"]
 asyncio_mode = "auto"
 # streaming/tests need Spark and Java; they run in the streaming image (`make test-streaming`).
 testpaths = ["tests", "producer/tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["dbt/target", "quality/great_expectations/gx"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # long SQL strings and URLs read better unwrapped
+
+[tool.ruff.lint.isort]
+# The repo has an airflow/ folder, but `airflow` is the installed package; the streaming and
+# producer scripts import their sibling modules as top-level names.
+known-third-party = ["airflow"]
+known-first-party = ["wikipulse", "wikipulse_common", "common", "transforms", "packages", "metrics",
+                     "maintenance", "bronze_job", "silver_job", "gold_job", "producer", "audit"]

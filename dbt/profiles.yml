@@ -17,3 +17,11 @@ wikipulse:
           url_style: path
           use_ssl: false
           region: us-east-1
+
+    # CI: reads the Parquet samples in dbt/sample/ (no S3), in a throwaway database.
+    ci:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'ci.duckdb') }}"
+      threads: 2
+      settings:
+        TimeZone: UTC

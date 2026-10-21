@@ -42,7 +42,8 @@ def test_trending_uses_five_sliding_windows_and_articles_only(spark):
     assert all(r.title == "Python" and r.edit_count == 2 and r.editors == ["Alice", "Bob"] for r in rows)
 
 
-def candidates_df(spark, count, editors=3, start=T.replace(second=0)):
+def candidates_df(spark, count, editors=3, start=None):
+    start = start or W
     return spark.createDataFrame(
         [(start, start + timedelta(minutes=5), "enwiki", "en.wikipedia.org", "Python", count, editors)],
         "window_start timestamp, window_end timestamp, wiki string, domain string, title string, "

@@ -45,7 +45,7 @@ def summarize(events: list[dict], gap_threshold: float = 10.0) -> dict:
     ids = Counter(e["meta"]["id"] for e in events)
     times = sorted(datetime.fromisoformat(e["meta"]["dt"].replace("Z", "+00:00")).timestamp()
                    for e in events)
-    gaps = sorted(((b - a, a) for a, b in zip(times, times[1:])), reverse=True)
+    gaps = sorted(((b - a, a) for a, b in zip(times, times[1:], strict=False)), reverse=True)
     span = times[-1] - times[0] if len(times) > 1 else 0
     return {
         "events": len(events),

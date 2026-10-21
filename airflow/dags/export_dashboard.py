@@ -1,7 +1,7 @@
 """After each successful dbt_build: export dashboard snapshots to Parquet + manifest.json (PRD §9).
 
-Writes to dashboard/data/. Publishing (Cloudflare R2, or the data-branch fallback) is added
-in Milestone 6.
+Writes dashboard/data/, then publishes it to Cloudflare R2 or the `data` branch when one of
+those is configured (dashboard/publish.py); otherwise the snapshot stays local.
 """
 
 from datetime import datetime
@@ -20,9 +20,16 @@ with DAG(
     default_args=DEFAULT_ARGS,
     tags=["wikipulse", "dashboard"],
 ) as dag:
-    BashOperator(
+    export = BashOperator(
         task_id="export_parquet",
         bash_command=f"{QUALITY_PY} {ROOT}/dashboard/export.py --out {ROOT}/dashboard/data",
         env=TASK_ENV,
         append_env=True,
     )
+    publish = BashOperator(
+        task_id="publish",
+        bash_command=f"{QUALITY_PY} {ROOT}/dashboard/publish.py --data {ROOT}/dashboard/data",
+        env=TASK_ENV,
+        append_env=True,
+    )
+    export >> publish

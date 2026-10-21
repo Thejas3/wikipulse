@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import boto3
 from delta.tables import DeltaTable
@@ -91,7 +91,7 @@ class MaintenanceWorker(threading.Thread):
         for obj in sorted(listing.get("Contents", []), key=lambda o: o["Key"]):
             request_id = obj["Key"][len(REQUESTS):].removesuffix(".json")
             log.info("running maintenance request %s", request_id)
-            started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            started = datetime.now(UTC).isoformat(timespec="seconds")
             try:
                 result = {"status": "success", "tables": run_maintenance(self.spark, self.config)}
                 metrics.MAINTENANCE_RUNS.labels("success").inc()
@@ -100,7 +100,7 @@ class MaintenanceWorker(threading.Thread):
                 metrics.MAINTENANCE_RUNS.labels("failed").inc()
                 log.exception("maintenance request %s failed", request_id)
             result.update(request_id=request_id, started_at=started,
-                          finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+                          finished_at=datetime.now(UTC).isoformat(timespec="seconds"))
             self.s3.put_object(Bucket=self.config.bucket, Key=f"{DONE}{request_id}.json",
                                Body=json.dumps(result, indent=2).encode())
             self.s3.delete_object(Bucket=self.config.bucket, Key=obj["Key"])

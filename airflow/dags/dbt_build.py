@@ -1,4 +1,4 @@
-"""Every 15 min: source freshness -> dbt run -> dbt snapshot -> dbt test (PRD §8).
+"""Every 15 min: source freshness -> seed -> dbt run -> dbt snapshot -> dbt test (PRD §8).
 
 The PRD lists snapshot before run; here run comes first because dim_user is snapshotted
 from fct_edits, so the snapshot must see the edits the run just loaded.
@@ -27,9 +27,10 @@ with DAG(
     # row is over 5 minutes old, fails over 30 (sources.yml).
     freshness = BashOperator(task_id="source_freshness", bash_command=dbt("source freshness"),
                              env=TASK_ENV, append_env=True)
+    seed = BashOperator(task_id="dbt_seed", bash_command=dbt("seed"), env=TASK_ENV, append_env=True)
     run = BashOperator(task_id="dbt_run", bash_command=dbt("run"), env=TASK_ENV, append_env=True)
     snapshot = BashOperator(task_id="dbt_snapshot", bash_command=dbt("snapshot"), env=TASK_ENV, append_env=True)
     test = BashOperator(task_id="dbt_test", bash_command=dbt("test"), env=TASK_ENV, append_env=True,
                         outlets=[WAREHOUSE])
 
-    freshness >> run >> snapshot >> test
+    freshness >> seed >> run >> snapshot >> test

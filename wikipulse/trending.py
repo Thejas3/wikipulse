@@ -1,7 +1,7 @@
 """Most-viewed and fastest-rising articles from the Wikimedia Pageviews API."""
 
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 
@@ -68,7 +68,7 @@ class TrendingService:
         if cached and time.monotonic() - cached[0] < self.ttl:
             return cached[1]
 
-        today = today or datetime.now(timezone.utc).date()
+        today = today or datetime.now(UTC).date()
         for offset in (1, 2, 3):  # daily data usually lands a few hours after midnight UTC
             day = today - timedelta(days=offset)
             current = await self._top(project, day)

@@ -13,8 +13,15 @@ from delta.tables import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from common import (Config, ProgressLogger, build_spark, ensure_bucket, prepare_checkpoint, setup_logging,
-                    wait_for_delta_table)
+from common import (
+    Config,
+    ProgressLogger,
+    build_spark,
+    ensure_bucket,
+    prepare_checkpoint,
+    setup_logging,
+    wait_for_delta_table,
+)
 from transforms import parse_bronze, to_silver
 
 log = logging.getLogger("silver")

@@ -10,7 +10,7 @@ import json
 import logging
 import math
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from delta.tables import DeltaTable
 from pyspark.sql import DataFrame, SparkSession
@@ -212,7 +212,7 @@ class Gold:
             self._detect_spikes(trending, batch_id, earliest_slide)
             lap("spikes")
 
-            visible_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            visible_at = datetime.now(UTC).replace(tzinfo=None)
             latency_rows = [(r.le_seconds, r.events) for r in latency_histogram(batch, visible_at).collect()]
             self.latency_buffer.extend((batch_id, visible_at, le, n) for le, n in latency_rows)
             try:
@@ -237,7 +237,7 @@ class Gold:
         for that, so Gold compacts each hour once no MERGE can touch it. It runs in Gold's own
         thread, between batches, so it never races Gold's writes.
         """
-        hour = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)).replace(
+        hour = (datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)).replace(
             minute=0, second=0, microsecond=0)
         if hour in self.compacted_hours:
             return

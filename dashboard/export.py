@@ -1,6 +1,8 @@
 """Export the dashboard's data: small Parquet snapshots + manifest.json (PRD §7, §9).
 
-One file per dashboard metric, read in the browser by DuckDB-WASM:
+One file per dashboard metric, read in the browser by DuckDB-WASM. Timestamps are written
+as plain UTC TIMESTAMPs: the browser build of DuckDB has no time-zone (ICU) extension, so
+TIMESTAMPTZ arithmetic fails there.
   edits_per_minute.parquet   last 6 h, human vs bot per minute         (Gold, streaming)
   trending.parquet           top 10 articles, last 15 minutes          (Gold, streaming)
   spikes.parquet             flagged spikes, last 24 h                 (Gold, streaming)
@@ -17,7 +19,7 @@ import json
 import os
 import shutil
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -31,34 +33,41 @@ def delta(name: str) -> str:
 
 
 QUERIES = {
+    # Browser-friendly types: INTEGER/DOUBLE rather than BIGINT (BigInt in JS), plain UTC
+    # TIMESTAMPs plus epoch-millisecond columns (the browser build of DuckDB has no ICU).
     "edits_per_minute": """
-        select window_start, sum(human_count) as human, sum(bot_count) as bot, sum(edit_count) as total
+        select window_start::timestamp as window_start, epoch_ms(window_start)::double as t_ms,
+               sum(human_count)::integer as human, sum(bot_count)::integer as bot, sum(edit_count)::integer as total
         from epm where window_start >= now() - interval 6 hour
         group by window_start order by window_start""",
     "trending": """
         -- 5-minute buckets aligned to :00/:05/:10, so the 15-minute total doesn't double count.
-        select wiki, any_value(domain) as domain, title, sum(edit_count) as edits,
-               count(distinct editor) as editors,
+        select wiki, any_value(domain) as domain, title, sum(edit_count)::integer as edits,
+               count(distinct editor)::integer as editors,
                'https://' || any_value(domain) || '/wiki/' || replace(title, ' ', '_') as url
         from (select wiki, domain, title, edit_count, unnest(editors) as editor
               from trending
               where window_start >= now() - interval 15 minute and minute(window_start) % 5 = 0)
         group by wiki, title order by edits desc, editors desc limit 10""",
     "spikes": """
-        select detected_at, window_start, wiki, title, window_count, unique_editors,
-               round(baseline_mean, 3) as baseline_mean, round(z_score, 1) as z_score,
+        select detected_at::timestamp as detected_at, window_start::timestamp as window_start,
+               epoch_ms(window_start)::double as t_ms, wiki, title,
+               window_count::integer as window_count, unique_editors::integer as unique_editors,
+               round(baseline_mean, 3)::double as baseline_mean, round(z_score, 1)::double as z_score,
                'https://' || domain || '/wiki/' || replace(title, ' ', '_') as url
         from spikes
         order by window_start desc""",
     "language_share": """
-        select coalesce(w.language, a.wiki) as language, sum(a.edits) as edits,
-               round(sum(a.edits) / sum(sum(a.edits)) over (), 4) as share
+        select coalesce(w.language, a.wiki) as language, sum(a.edits)::integer as edits,
+               round(sum(a.edits) / sum(sum(a.edits)) over (), 4)::double as share
         from wh.agg_daily_wiki a left join wh.dim_wiki w using (wiki)
         where a.event_date = current_date
         group by 1 order by edits desc""",
     "vandalism": """
-        select event_time, wiki, title, user_name, byte_delta, vandalism_score,
-               is_anonymous, is_blanking, page_reverts_last_hour, user_edits_last_10min,
+        select event_time::timestamp as event_time, epoch_ms(event_time)::double as t_ms, wiki, title, user_name,
+               byte_delta::integer as byte_delta, vandalism_score::integer as vandalism_score,
+               is_anonymous, is_blanking, page_reverts_last_hour::integer as page_reverts_last_hour,
+               user_edits_last_10min::integer as user_edits_last_10min,
                'https://' || domain || '/w/index.php?diff=' || revision_new || '&oldid=' || revision_old as diff_url
         from wh.fct_edits
         where event_time >= now() - interval 1 hour and vandalism_score > 0 and revision_old is not null
@@ -125,10 +134,11 @@ def main() -> None:
     try:
         for name, sql in QUERIES.items():
             path = staging / f"{name}.parquet"
-            con.execute(f"COPY ({sql}) TO '{path}' (FORMAT parquet, COMPRESSION zstd)")
+            # snappy: the dashboard's Parquet reader (hyparquet) decodes it without extra codecs
+            con.execute(f"COPY ({sql}) TO '{path}' (FORMAT parquet, COMPRESSION snappy)")
             files[name] = {"file": path.name, "rows": con.execute(f"select count(*) from '{path}'").fetchone()[0],
                            "bytes": path.stat().st_size}
-        manifest = {"exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        manifest = {"exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
                     **health(con, Path(args.dbt_target)), "files": files}
         for name in files:  # swap the data files in, then the manifest that points at them
             os.replace(staging / f"{name}.parquet", out / f"{name}.parquet")

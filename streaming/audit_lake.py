@@ -9,7 +9,7 @@ appear in Silver exactly once (by meta.id).
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from pyspark.sql import functions as F
 
@@ -26,7 +26,7 @@ def main() -> None:
     # Full-table aggregations over millions of rows: more, smaller shuffle partitions spill to
     # disk instead of holding a quarter of the table per task (the streaming default is 4).
     spark.conf.set("spark.sql.shuffle.partitions", "32")
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
 
     kafka = (
         spark.read.format("kafka").option("kafka.bootstrap.servers", config.bootstrap)

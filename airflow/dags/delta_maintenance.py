@@ -10,10 +10,10 @@ import os
 from datetime import datetime, timedelta
 
 import boto3
-from botocore.exceptions import ClientError
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.sensors.python import PythonSensor
+from botocore.exceptions import ClientError
 
 from wikipulse_common import DEFAULT_ARGS
 

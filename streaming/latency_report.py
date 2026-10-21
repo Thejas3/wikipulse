@@ -7,7 +7,7 @@ Percentiles are bucket upper bounds, so they slightly overstate the true value.
 
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from pyspark.sql import functions as F
 
@@ -31,7 +31,7 @@ def main() -> None:
     config = Config()
     spark = build_spark("wikipulse-latency", config)
     spark.sparkContext.setLogLevel("ERROR")
-    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=minutes)
+    since = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=minutes)
     rows = (
         spark.read.format("delta").load(config.table("gold/latency_histogram"))
         .where(F.col("measured_at") >= F.lit(since))
