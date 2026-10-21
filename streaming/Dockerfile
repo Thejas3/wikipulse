@@ -12,8 +12,8 @@ WORKDIR /app
 COPY streaming/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY streaming/common.py streaming/warmup.py ./
+COPY streaming/packages.py streaming/warmup.py ./
 RUN python warmup.py  # bake Delta, Kafka and S3A jars into the image so containers start offline
 
 COPY streaming/ ./
-CMD ["python", "bronze_job.py"]
+CMD ["python", "pipeline.py"]

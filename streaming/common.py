@@ -9,13 +9,10 @@ from dataclasses import dataclass
 from pyspark.sql import SparkSession
 from pyspark.sql.streaming import StreamingQueryListener
 
+from packages import PACKAGES
+
 log = logging.getLogger("streaming")
 
-PACKAGES = ",".join([
-    "io.delta:delta-spark_2.12:3.2.1",
-    "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3",
-    "org.apache.hadoop:hadoop-aws:3.3.4",  # matches the Hadoop version bundled with Spark 3.5.3
-])
 
 
 @dataclass(frozen=True)
@@ -26,7 +23,10 @@ class Config:
     s3_access_key: str = os.getenv("S3_ACCESS_KEY", "")
     s3_secret_key: str = os.getenv("S3_SECRET_KEY", "")
     bucket: str = os.getenv("LAKE_BUCKET", "lakehouse")
-    trigger: str = os.getenv("TRIGGER_INTERVAL", "10 seconds")
+    trigger: str = os.getenv("TRIGGER_INTERVAL", "10 seconds")  # Bronze (PRD §6.2)
+    # Silver and Gold start the next batch as soon as the previous one finishes; with no
+    # new upstream commits a batch is a no-op, so this cuts trigger waits, not adds commits.
+    downstream_trigger: str = os.getenv("DOWNSTREAM_TRIGGER_INTERVAL", "0 seconds")
 
     def table(self, name: str) -> str:
         return f"s3a://{self.bucket}/{name}"
@@ -38,10 +38,11 @@ class Config:
 def build_spark(app_name: str, config: Config | None = None, s3: bool = True) -> SparkSession:
     builder = (
         SparkSession.builder.appName(app_name)
-        .master(os.getenv("SPARK_MASTER", "local[2]"))
+        .master(os.getenv("SPARK_MASTER", "local[3]"))
         .config("spark.jars.packages", PACKAGES)
         .config("spark.jars.ivy", os.getenv("SPARK_IVY_DIR", "/opt/ivy"))
         .config("spark.driver.memory", os.getenv("SPARK_DRIVER_MEMORY", "1g"))
+        .config("spark.driver.extraJavaOptions", os.getenv("SPARK_DRIVER_JAVA_OPTS", ""))
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         # Both settings are frozen into a query's checkpoint on its first run.
@@ -49,7 +50,15 @@ def build_spark(app_name: str, config: Config | None = None, s3: bool = True) ->
         .config("spark.sql.streaming.stateStore.providerClass",
                 "org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider")
         .config("spark.sql.session.timeZone", "UTC")
+        # Delta rebuilds table state several times per micro-batch; its default of 50 tasks per
+        # rebuild made scheduling overhead, not data, the main cost on a 3-core driver.
+        .config("spark.databricks.delta.snapshotPartitions", "4")
+        # No query is stateful any more (ADR 0004); this keeps any future stateful query from
+        # running back-to-back no-data batches under the 0 s trigger, which burned ~1 core.
+        .config("spark.sql.streaming.noDataMicroBatches.enabled", "false")
         .config("spark.ui.enabled", "false")
+        .config("spark.ui.showConsoleProgress", "false")  # progress bars flood container logs
+        .config("spark.scheduler.mode", "FAIR")  # queries in one app share cores fairly (pipeline.py)
     )
     if s3 and config:
         builder = (
@@ -85,6 +94,24 @@ def ensure_bucket(config: Config, attempts: int = 30) -> None:
     raise RuntimeError(f"object store at {config.s3_endpoint} never became ready")
 
 
+def prepare_checkpoint(spark: SparkSession, path: str) -> str:
+    """Put a `.keep` file in the checkpoint's offsets/ and commits/ folders.
+
+    SeaweedFS's S3 gateway deletes empty folders automatically, but Spark creates commits/
+    empty and lists it before the first commit, so a long first micro-batch failed with
+    FileNotFoundException. Spark only treats numbered files as batches and never deletes
+    other files, so the marker keeps the folders in place for good (ADR 0002).
+    """
+    jvm = spark.sparkContext._jvm
+    hadoop_path = jvm.org.apache.hadoop.fs.Path(path)
+    fs = hadoop_path.getFileSystem(spark.sparkContext._jsc.hadoopConfiguration())
+    for folder in ("offsets", "commits"):
+        keep = jvm.org.apache.hadoop.fs.Path(f"{path}/{folder}/.keep")
+        if not fs.exists(keep):
+            fs.create(keep, True).close()
+    return path
+
+
 def wait_for_delta_table(spark: SparkSession, path: str, poll: float = 10.0) -> None:
     """Block until another job has created the Delta table at `path`."""
     from delta.tables import DeltaTable
@@ -109,6 +136,8 @@ class ProgressLogger(StreamingQueryListener):
             "input_rows": p.numInputRows,
             "rows_per_sec": round(p.processedRowsPerSecond or 0, 1),
             "batch_ms": p.durationMs.get("triggerExecution"),
+            # Where the batch time went: offsets, planning, the write itself, commit logs.
+            "phases_ms": {k: v for k, v in p.durationMs.items() if k != "triggerExecution" and v},
             "state_rows": state.numRowsTotal if state else None,
             "dropped_late": state.numRowsDroppedByWatermark if state else None,
         }))

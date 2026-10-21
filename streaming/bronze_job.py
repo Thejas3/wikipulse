@@ -6,19 +6,13 @@ sink records each micro-batch ID, so a batch replayed after a crash is not writt
 
 import logging
 
-from common import Config, ProgressLogger, build_spark, ensure_bucket, setup_logging
+from common import Config, ProgressLogger, build_spark, ensure_bucket, prepare_checkpoint, setup_logging
 from transforms import bronze_columns
 
 log = logging.getLogger("bronze")
 
 
-def main() -> None:
-    setup_logging()
-    config = Config()
-    ensure_bucket(config)
-    spark = build_spark("wikipulse-bronze", config)
-    spark.streams.addListener(ProgressLogger())
-
+def start(spark, config: Config):
     kafka = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", config.bootstrap)
@@ -32,12 +26,21 @@ def main() -> None:
         .queryName("bronze")
         .outputMode("append")
         .partitionBy("ingest_date")
-        .option("checkpointLocation", config.checkpoint("bronze"))
+        .option("checkpointLocation", prepare_checkpoint(spark, config.checkpoint("bronze")))
         .trigger(processingTime=config.trigger)
         .start(config.table("bronze/recentchange"))
     )
     log.info("bronze running -> %s", config.table("bronze/recentchange"))
-    query.awaitTermination()
+    return query
+
+
+def main() -> None:
+    setup_logging()
+    config = Config()
+    ensure_bucket(config)
+    spark = build_spark("wikipulse-bronze", config)
+    spark.streams.addListener(ProgressLogger())
+    start(spark, config).awaitTermination()
 
 
 if __name__ == "__main__":

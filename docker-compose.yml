@@ -111,27 +111,23 @@ services:
       timeout: 5s
       retries: 20
 
-  bronze:
+  # Bronze, Silver and Gold as three queries in one Spark app (streaming/pipeline.py).
+  streaming:
     <<: *streaming
-    command: ["python", "bronze_job.py"]
+    command: ["python", "pipeline.py"]
     restart: unless-stopped
     depends_on:
       kafka-init:
         condition: service_completed_successfully
       seaweedfs:
         condition: service_healthy
-    mem_limit: 1536m
-
-  silver:
-    <<: *streaming
-    command: ["python", "silver_job.py"]
-    restart: unless-stopped
-    depends_on:
-      seaweedfs:
-        condition: service_healthy
-      bronze:
-        condition: service_started
-    mem_limit: 1536m
+    environment:
+      <<: *streaming-env
+      SPARK_DRIVER_MEMORY: 2g
+      # Bound the JVM's off-heap pools so heap + off-heap + the Python driver stay under the
+      # container limit (at 3 GB it was OOM-killed twice during the Silver rebuild).
+      SPARK_DRIVER_JAVA_OPTS: ${SPARK_DRIVER_JAVA_OPTS:--XX:MaxDirectMemorySize=512m -XX:MaxMetaspaceSize=384m -XX:ReservedCodeCacheSize=128m}
+    mem_limit: 3584m  # PRD §9 budgets 3 GB for Spark; +512 MB for the Python driver and S3 buffers
 
   # One-off tools: `docker compose run --rm spark-tools pytest` or `... python audit_lake.py`.
   # Mounts the working copy so tests and audits use the current code without a rebuild.
@@ -141,7 +137,11 @@ services:
     command: ["pytest", "-q", "tests"]
     volumes:
       - ./streaming:/app
-    mem_limit: 1536m
+    environment:
+      <<: *streaming-env
+      SPARK_DRIVER_MEMORY: 1536m
+      SPARK_DRIVER_JAVA_OPTS: -XX:MaxDirectMemorySize=384m -XX:MaxMetaspaceSize=384m -XX:ReservedCodeCacheSize=128m
+    mem_limit: 2560m  # audits scan all of Bronze; 1.5 GB was OOM-killed
 
 volumes:
   kafka-data:

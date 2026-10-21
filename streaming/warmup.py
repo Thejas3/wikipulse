@@ -1,5 +1,12 @@
 """Run at image build time: resolve the Spark Maven packages into the image's Ivy cache."""
 
-from common import build_spark
+import os
 
-build_spark("warmup", s3=False).stop()
+from pyspark.sql import SparkSession
+
+from packages import PACKAGES
+
+(SparkSession.builder.master("local[1]")
+ .config("spark.jars.packages", PACKAGES)
+ .config("spark.jars.ivy", os.getenv("SPARK_IVY_DIR", "/opt/ivy"))
+ .getOrCreate().stop())

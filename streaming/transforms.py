@@ -29,7 +29,7 @@ IPV4 = r"^\d{1,3}(\.\d{1,3}){3}$"
 IPV6 = r"^[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,7}$"
 TEMP_ACCOUNT = r"^~\d{4}-\d+(-\d+)?$"  # Wikimedia temporary accounts, which replace IP editing
 
-WATERMARK = "10 minutes"
+
 
 
 def bronze_columns(kafka: DataFrame) -> DataFrame:
@@ -93,7 +93,3 @@ def to_silver(parsed: DataFrame) -> DataFrame:
         )
     )
 
-
-def deduplicate(silver: DataFrame) -> DataFrame:
-    """Drop replayed events (same meta.id) seen within the watermark; state older than it is evicted."""
-    return silver.withWatermark("event_time", WATERMARK).dropDuplicatesWithinWatermark(["edit_id"])

@@ -23,12 +23,16 @@ def main() -> None:
     config = Config()
     spark = build_spark("wikipulse-audit", config)
     spark.sparkContext.setLogLevel("ERROR")
+    # Full-table aggregations over millions of rows: more, smaller shuffle partitions spill to
+    # disk instead of holding a quarter of the table per task (the streaming default is 4).
+    spark.conf.set("spark.sql.shuffle.partitions", "32")
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     kafka = (
         spark.read.format("kafka").option("kafka.bootstrap.servers", config.bootstrap)
         .option("subscribe", config.raw_topic)
         .option("startingOffsets", "earliest").option("endingOffsets", "latest").load()
+        .select("partition", "offset")  # values aren't needed
         .groupBy("partition").agg(F.min("offset").alias("kafka_min"), F.max("offset").alias("kafka_max"))
     )
     # Pin one Delta version per table, so every count below sees the same snapshot even
@@ -86,8 +90,46 @@ def main() -> None:
             "reconciles": expected_edits == silver_distinct + missing_total,
             "replays_removed": bronze_replays(bronze),
         },
+        "gold": gold_check(spark, config, silver, cutoff),
     }
     print(json.dumps(report, indent=2))
+
+
+def gold_check(spark, config, silver, cutoff) -> dict:
+    """gold_edits_per_minute must equal a fresh recount of Silver for every settled (wiki, minute).
+
+    Gold adds each micro-batch as increments, so a replayed batch counted twice, or a lost
+    one, shows up here as a mismatch.
+    """
+    from delta.tables import DeltaTable
+
+    path = config.table("gold/edits_per_minute")
+    if not DeltaTable.isDeltaTable(spark, path):
+        return {"status": "no gold table yet"}
+    gold = snapshot(spark, path).where(F.col("window_start") < F.lit(cutoff))
+    recount = (
+        silver.groupBy(F.window("event_time", "1 minute").start.alias("window_start"), "wiki")
+        .agg(F.count("*").alias("silver_count"))
+        .where(F.col("window_start") < F.lit(cutoff))
+    )
+    # Gold may trail Silver, and events a few seconds late still land in the previous minute,
+    # so only compare minutes at least 2 minutes older than Gold's newest one.
+    newest = gold.agg(F.max("window_start")).collect()[0][0]
+    if newest is None:
+        return {"status": "gold empty"}
+    bound = F.lit(newest - SETTLE)
+    compared = (
+        recount.where(F.col("window_start") < bound)
+        .join(gold.where(F.col("window_start") < bound), ["window_start", "wiki"], "full")
+        .select(F.coalesce("silver_count", F.lit(0)).alias("s"), F.coalesce("edit_count", F.lit(0)).alias("g"))
+    )
+    r = compared.agg(
+        F.count("*").alias("cells"),
+        F.sum((F.col("s") != F.col("g")).cast("int")).alias("mismatched"),
+        F.sum(F.col("s")).alias("silver_total"), F.sum(F.col("g")).alias("gold_total"),
+    ).collect()[0]
+    return {"wiki_minutes_compared": r.cells, "mismatched": r.mismatched,
+            "silver_edits": r.silver_total, "gold_edits": r.gold_total}
 
 
 def snapshot(spark, path: str):

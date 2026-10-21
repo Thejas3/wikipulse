@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pyspark.sql import Row  # noqa: E402
 
 from common import build_spark  # noqa: E402
-from transforms import deduplicate, parse_bronze, to_silver  # noqa: E402
+from transforms import parse_bronze, to_silver  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -88,28 +88,19 @@ def test_malformed_json_does_not_break_the_batch(spark):
     assert set(silver_rows(spark, ["{not json", event()])) == {"e1"}
 
 
-def test_streaming_dedup_across_micro_batches(spark, tmp_path):
-    """A replayed event in a later micro-batch is dropped by the watermarked dedup state."""
-    source, checkpoint, table = tmp_path / "src", tmp_path / "chk", tmp_path / "silver"
-    source.mkdir()
+def test_silver_merge_keeps_late_events_and_skips_replays(spark, tmp_path):
+    """The 2026-10-20 incident: events hours behind the newest one must be kept, not dropped."""
+    from silver_job import Silver
 
-    def run_batch(name, events):
-        (source / f"{name}.txt").write_text("\n".join(json.dumps(e) for e in events))
-        stream = (
-            spark.readStream.format("text").load(str(source))
-            .withColumnRenamed("value", "raw_json")
-            .selectExpr("raw_json", "0 as kafka_partition", "0L as kafka_offset",
-                        "current_timestamp() as ingested_at")
-        )
-        # A Delta sink, as in production: the second run restarts from the same checkpoint.
-        query = (
-            deduplicate(to_silver(parse_bronze(stream))).writeStream.format("delta")
-            .outputMode("append")
-            .option("checkpointLocation", str(checkpoint)).trigger(availableNow=True).start(str(table))
-        )
-        query.awaitTermination()
+    silver = Silver(spark, str(tmp_path / "silver"))
+    silver.ensure_table(to_silver(parse_bronze(bronze_df(spark, [event()]))))
 
-    run_batch("b1", [event("a"), event("b"), event("a")])  # duplicate inside one batch
-    run_batch("b2", [event("a"), event("c")])  # replay of "a" after a restart
-    ids = sorted(r.edit_id for r in spark.read.format("delta").load(str(table)).collect())
-    assert ids == ["a", "b", "c"]
+    def run(batch_id, events):
+        silver.process(bronze_df(spark, events), batch_id)
+
+    run(0, [event("a"), event("b"), event("a")])  # duplicate inside one batch
+    late = event("late", meta={"id": "late", "dt": "2026-10-19T12:00:00Z", "domain": "en.wikipedia.org"})
+    run(1, [event("a"), event("c"), late])  # producer replay of "a", plus an event 8 h older
+    run(1, [event("a"), event("c"), late])  # crash and replay of micro-batch 1 itself
+    ids = sorted(r.edit_id for r in spark.read.format("delta").load(str(tmp_path / "silver")).collect())
+    assert ids == ["a", "b", "c", "late"]
