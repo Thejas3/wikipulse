@@ -104,7 +104,7 @@ services:
       - "127.0.0.1:8333:8333"  # S3 API, for host tools (DuckDB in Milestone 4)
     volumes:
       - lake-data:/data
-    mem_limit: 1g
+    mem_limit: 1536m  # 1 GB was OOM-killed during the daily OPTIMIZE (bulk reads + writes)
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9333/cluster/status"]
       interval: 5s

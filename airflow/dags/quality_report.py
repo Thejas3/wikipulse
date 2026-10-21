@@ -31,7 +31,9 @@ with DAG(
 
 with DAG(
     dag_id="lake_audit",
-    schedule="10 * * * *",
+    # Hourly, except during delta_maintenance (03:00-~03:30 UTC): running both at once ran the
+    # VM out of memory and killed the object store.
+    schedule="10 0-2,4-23 * * *",
     start_date=datetime(2026, 10, 20),
     catchup=False,
     max_active_runs=1,
