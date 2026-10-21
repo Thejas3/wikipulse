@@ -2,7 +2,7 @@
 
 **Live dashboard: https://thejas3.github.io/wikipulse/**
 
-A real-time data pipeline that streams every edit made across Wikipedia through Kafka into a Bronze → Silver → Gold lakehouse, and serves live analytics on a public dashboard. The full plan is in the PRD; this README tracks what's built and the numbers measured so far.
+A real-time data pipeline that streams every edit made across Wikipedia through Kafka into a Bronze → Silver → Gold lakehouse, and serves live analytics on a public dashboard. The full plan is in the PRD; this README tracks what's built and the numbers measured so far. Architecture: [docs/architecture.md](docs/architecture.md).
 
 ## Status
 
@@ -14,7 +14,7 @@ A real-time data pipeline that streams every edit made across Wikipedia through 
 | 4. dbt models and data quality | **Done.** `dbt build` 29/29 green, lineage docs, 2 GX suites |
 | 5. Airflow and monitoring | **Built.** 5 DAGs green, Prometheus + Grafana with alerts; 24 h unattended run pending |
 | 6. Public dashboard (GitHub Pages, DuckDB-WASM) | **Done.** Live at https://thejas3.github.io/wikipulse/, cold load < 0.8 s, refreshed every 15 min |
-| 7. Hardening and write-up | Not started |
+| 7. Hardening and write-up | **In progress.** All 8 ADRs, architecture doc, deploy script, demo script done; VM + 7-day run pending |
 
 ## Measured so far
 
@@ -51,6 +51,24 @@ Delta tables live in the S3 bucket s3a://lakehouse on SeaweedFS.
 - **Bronze → Silver, deduplicated:** `dropDuplicatesWithinWatermark` on `meta.id` removes producer replays, with RocksDB holding the dedup state.
 - **Object store:** SeaweedFS instead of MinIO, because MinIO's images are no longer published ([ADR 0002](docs/decisions/0002-seaweedfs-instead-of-minio.md)).
 - **Silver partitioning:** by `event_date` only, to avoid a small-file explosion ([ADR 0003](docs/decisions/0003-silver-partitioned-by-date-only.md)).
+
+## PRD §10 targets
+
+| Requirement | Target | Measured | Status |
+|---|---|---|---|
+| End-to-end latency (edit → Gold) | < 60 s p95 | **≤ 30 s** p95 on a quiet host; 84 s while macOS was thermally throttling the Docker VM (`kernel_task` at 192%) | ✅ met on a healthy host; needs a dedicated VM to hold |
+| Silver processing latency | < 15 s p95 | 3–7 s per batch on a quiet host; 17 s p95 under throttling | ✅ / ⚠️ same caveat |
+| Throughput headroom | ≥ 5× live rate | ~400× (10–13.5k rows/s Bronze catch-up vs ~28 events/s live) | ✅ |
+| Data loss | 0 events | 0, after SIGKILL of producer + Spark, a 16 h network outage, and OOM crashes | ✅ |
+| Duplicates in Silver | 0 | 0 (Bronze by offset, Silver by `edit_id`, Gold recount match) | ✅ |
+| Recovery after restart | < 2 min | 30 s to the first new Bronze batch | ✅ |
+| Dashboard load time | < 3 s, cold cache | 0.36–0.78 s | ✅ |
+| Dashboard data freshness | ≤ 15 min | 12.7 min when sampled; export runs after every 15-minute dbt build | ✅ |
+| Storage growth | measured, with compaction | Bronze ~0.95 GB/day; daily OPTIMIZE cut its files 9,439 → 3,157 | ✅ |
+| Cost | $0/month | $0: laptop + GitHub Pages | ✅ |
+| 7-day unattended uptime | 7 days | not run: needs an always-on VM (Oracle's free ARM tier was out of capacity); the laptop sleeps | ⏳ |
+
+The laptop runs show the cost of not having a dedicated host: sleep caused 3 automatic Spark restarts and a 16-hour backfill (handled without loss), and thermal throttling doubled every batch time. `deploy/` has a one-command setup for a VM when one is available.
 
 ## Analytics layer (dbt + DuckDB)
 
