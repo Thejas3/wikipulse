@@ -1,0 +1,91 @@
+version: 2
+
+models:
+  - name: stg_edits
+    description: >
+      Silver edits with surrogate keys (md5 of natural keys). Tests here cover the last day
+      of Silver, since each one scans Delta files over S3; fct_edits checks uniqueness across
+      all history.
+    columns:
+      - name: edit_id
+        description: meta.id from the event, the deduplication key.
+        tests:  # PRD §8: zero duplicates in Silver
+          - unique:
+              config: {where: "event_date >= current_date - 1"}
+          - not_null:
+              config: {where: "event_date >= current_date - 1"}
+      - name: event_time
+        tests:
+          - not_null:
+              config: {where: "event_date >= current_date - 1"}
+          - event_time_is_plausible:
+              processed_at: silver_processed_at
+              config: {where: "event_date >= current_date - 1"}
+
+  - name: fct_edits
+    description: One row per Wikipedia edit or page creation, with a heuristic vandalism score.
+    columns:
+      - name: edit_id
+        tests: [unique, not_null]
+      - name: page_key
+        tests:
+          - not_null
+          - relationships:  # PRD §8: every page_key in facts exists in dim_page
+              to: ref('dim_page')
+              field: page_key
+      - name: wiki_key
+        tests:
+          - relationships:
+              to: ref('dim_wiki')
+              field: wiki_key
+      - name: user_key
+        tests:
+          - relationships:
+              to: ref('dim_user')
+              field: user_key
+              # Edits whose username Wikimedia has hidden (suppressed) have no editor to link.
+              config: {where: "user_name is not null"}
+      - name: edit_type
+        tests:
+          - accepted_values:
+              values: [edit, new]
+      - name: vandalism_score
+        description: 0-100; weights documented in fct_edits.sql and the README.
+        tests:
+          - not_null
+          - expression_is_true:
+              expression: "vandalism_score between 0 and 100"
+          - expression_is_true:  # the score is exactly its weighted signals (catches NULL signals)
+              expression: >
+                vandalism_score = case when is_bot then 0 else
+                  30 * coalesce(is_anonymous, false)::int + 30 * is_blanking::int
+                  + 20 * (page_reverts_last_hour >= 2)::int + 20 * (user_edits_last_10min >= 10)::int end
+
+  - name: dim_page
+    description: One row per edited page.
+    columns:
+      - name: page_key
+        tests: [unique, not_null]
+
+  - name: dim_wiki
+    description: One row per wiki, with a readable language name.
+    columns:
+      - name: wiki_key
+        tests: [unique, not_null]
+
+  - name: agg_daily_wiki
+    description: Edits, editors, bot share and anonymous share per wiki per day.
+    tests:
+      - expression_is_true:
+          expression: "bot_share between 0 and 1 and anon_share between 0 and 1"
+
+  - name: agg_editor_leaderboard
+    description: Edits, pages touched and net bytes per editor per day.
+
+snapshots:
+  - name: dim_user
+    description: Editors as SCD Type 2 on is_bot and is_anonymous.
+    columns:
+      - name: user_key
+        tests:
+          - not_null

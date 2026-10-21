@@ -1,0 +1,19 @@
+# Credentials come from the environment (.env); nothing secret is stored here.
+wikipulse:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', '../warehouse/wikipulse.duckdb') }}"
+      threads: 2
+      extensions: [httpfs, delta]
+      settings:
+        TimeZone: UTC
+      secrets:
+        - type: s3
+          key_id: "{{ env_var('S3_ACCESS_KEY') }}"
+          secret: "{{ env_var('S3_SECRET_KEY') }}"
+          endpoint: "{{ env_var('DBT_S3_ENDPOINT', '127.0.0.1:8333') }}"
+          url_style: path
+          use_ssl: false
+          region: us-east-1

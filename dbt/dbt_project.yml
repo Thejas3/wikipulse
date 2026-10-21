@@ -1,0 +1,26 @@
+name: wikipulse
+version: "0.1.0"
+config-version: 2
+profile: wikipulse
+
+model-paths: ["models"]
+snapshot-paths: ["snapshots"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+  wikipulse:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+    aggregates:
+      +materialized: table
+
+seeds:
+  wikipulse:
+    wikis:
+      +column_types:
+        language_code: varchar
+        language_name: varchar

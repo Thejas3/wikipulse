@@ -1,0 +1,32 @@
+version: 2
+
+sources:
+  - name: lake
+    description: Delta tables written by the Spark streaming jobs, read in place with DuckDB's delta extension.
+    tables:
+      - name: silver_edits
+        description: Deduplicated Wikipedia edits and page creations (one row per meta.id).
+        config:
+          external_location: "delta_scan('s3://{{ env_var('LAKE_BUCKET', 'lakehouse') }}/silver/edits')"
+        loaded_at_field: silver_processed_at
+        freshness:  # PRD §8: newest Silver row under 5 minutes old
+          warn_after: {count: 5, period: minute}
+          error_after: {count: 30, period: minute}
+
+      - name: gold_edits_per_minute
+        description: Streaming Gold, 1-minute tumbling windows per wiki.
+        config:
+          external_location: "delta_scan('s3://{{ env_var('LAKE_BUCKET', 'lakehouse') }}/gold/edits_per_minute')"
+        tests:
+          - expression_is_true:  # PRD §8: bot_count + human_count = edit_count
+              expression: "bot_count + human_count = edit_count"
+
+      - name: gold_trending_pages
+        description: Streaming Gold, 5-minute windows sliding every minute, per article.
+        config:
+          external_location: "delta_scan('s3://{{ env_var('LAKE_BUCKET', 'lakehouse') }}/gold/trending_pages')"
+
+      - name: gold_spikes
+        description: Streaming Gold, flagged edit spikes (ADR 0005).
+        config:
+          external_location: "delta_scan('s3://{{ env_var('LAKE_BUCKET', 'lakehouse') }}/gold/spikes')"
