@@ -51,7 +51,11 @@ def publish_branch(data: Path) -> None:
             (target / f.name).write_bytes(f.read_bytes())
         workflow = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pages.yml"
         (repo / ".github" / "workflows").mkdir(parents=True)
-        (repo / ".github" / "workflows" / "pages.yml").write_bytes(workflow.read_bytes())
+        # Drop the `paths:` filter from the data branch's copy: every snapshot is an unrelated
+        # force-pushed commit, and GitHub skipped path-filtered runs for those after the first.
+        text = "".join(line for line in workflow.read_text().splitlines(keepends=True)
+                       if not line.lstrip().startswith("paths:"))
+        (repo / ".github" / "workflows" / "pages.yml").write_text(text)
 
         def git(*args):
             result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
