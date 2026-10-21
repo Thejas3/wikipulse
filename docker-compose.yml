@@ -14,6 +14,39 @@ x-streaming: &streaming
     S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
     SPARK_DRIVER_MEMORY: 1g
 
+x-airflow: &airflow
+  build: ./airflow
+  image: wikipulse-airflow:dev
+  restart: unless-stopped
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    airflow-db:
+      condition: service_healthy
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set AIRFLOW_FERNET_KEY in .env}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:?set AIRFLOW_SECRET_KEY in .env}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__CORE__PARALLELISM: "4"
+    AIRFLOW__WEBSERVER__WORKERS: "1"  # memory: one gunicorn worker is plenty for one user
+    AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}
+    S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+    S3_SECRET_KEY: ${S3_SECRET_KEY}
+    # Dashboard publishing to the `data` branch (empty = keep snapshots local).
+    DATA_BRANCH_REMOTE: ${DATA_BRANCH_REMOTE:-}
+    GIT_SSH_COMMAND: ssh -i /opt/wikipulse/secrets/deploy_key -o IdentitiesOnly=yes -o UserKnownHostsFile=/opt/wikipulse/secrets/known_hosts -o StrictHostKeyChecking=yes
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./dbt:/opt/wikipulse/dbt
+    - ./quality:/opt/wikipulse/quality
+    - ./dashboard:/opt/wikipulse/dashboard
+    - ./warehouse:/opt/wikipulse/warehouse
+    - ./secrets:/opt/wikipulse/secrets:ro
+    - ./.github/workflows/pages.yml:/opt/wikipulse/.github/workflows/pages.yml:ro
+  mem_limit: 512m
+
 services:
   kafka:
     image: *kafka-image
@@ -124,6 +157,9 @@ services:
     environment:
       <<: *streaming-env
       SPARK_DRIVER_MEMORY: 2g
+      # Tunable from .env for smaller hosts (deploy/README.md, "Sizing for 2 OCPUs").
+      SPARK_MASTER: ${SPARK_MASTER:-local[3]}
+      DOWNSTREAM_TRIGGER_INTERVAL: ${DOWNSTREAM_TRIGGER_INTERVAL:-0 seconds}
       # Bound the JVM's off-heap pools so heap + off-heap + the Python driver stay under the
       # container limit (at 3 GB it was OOM-killed twice during the Silver rebuild).
       SPARK_DRIVER_JAVA_OPTS: ${SPARK_DRIVER_JAVA_OPTS:--XX:MaxDirectMemorySize=512m -XX:MaxMetaspaceSize=384m -XX:ReservedCodeCacheSize=128m}
@@ -148,49 +184,36 @@ services:
       interval: 5s
       retries: 20
 
-  airflow:
-    build: ./airflow
-    image: wikipulse-airflow:dev
-    restart: unless-stopped
-    user: "${AIRFLOW_UID:-50000}:0"
-    depends_on:
-      airflow-db:
-        condition: service_healthy
-    environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set AIRFLOW_FERNET_KEY in .env}
-      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:?set AIRFLOW_SECRET_KEY in .env}
-      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
-      AIRFLOW__CORE__PARALLELISM: "4"
-      AIRFLOW__WEBSERVER__WORKERS: "1"  # memory: one gunicorn worker is plenty for one user
-      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      # Dashboard publishing to the `data` branch (empty = keep snapshots local).
-      DATA_BRANCH_REMOTE: ${DATA_BRANCH_REMOTE:-}
-      GIT_SSH_COMMAND: ssh -i /opt/wikipulse/secrets/deploy_key -o IdentitiesOnly=yes -o UserKnownHostsFile=/opt/wikipulse/secrets/known_hosts -o StrictHostKeyChecking=yes
+  # Scheduler and web server run in separate containers: when they shared one, every OOM
+  # kill of the web server restarted the container and took the scheduler and its tasks down.
+  airflow-init:
+    <<: *airflow
     command:
       - bash
       - -c
       - |
         airflow db migrate &&
         (airflow users create --username admin --password "$$AIRFLOW_ADMIN_PASSWORD" --role Admin \
-           --firstname Wiki --lastname Pulse --email admin@localhost 2>/dev/null || true) &&
-        (airflow scheduler &) &&
-        exec airflow webserver --port 8080
+           --firstname Wiki --lastname Pulse --email admin@localhost 2>/dev/null || true)
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow
+    command: ["airflow", "scheduler"]
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    mem_limit: 2560m  # tasks (dbt, GX, the DuckDB audit, the export) run in this container
+
+  airflow-webserver:
+    <<: *airflow
+    command: ["airflow", "webserver", "--port", "8080"]
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:8080:8080"  # Airflow UI (admin / AIRFLOW_ADMIN_PASSWORD from .env)
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./dbt:/opt/wikipulse/dbt
-      - ./quality:/opt/wikipulse/quality
-      - ./dashboard:/opt/wikipulse/dashboard
-      - ./warehouse:/opt/wikipulse/warehouse
-      - ./secrets:/opt/wikipulse/secrets:ro
-      - ./.github/workflows/pages.yml:/opt/wikipulse/.github/workflows/pages.yml:ro
-    mem_limit: 2g  # tasks (dbt, GX, the DuckDB audit) run inside this container (LocalExecutor)
+    mem_limit: 1g
 
   # ---- Monitoring (PRD §8): Prometheus scrapes the producer and the Spark app ----
   prometheus:
