@@ -10,8 +10,8 @@ A real-time data pipeline that streams every edit made across Wikipedia through 
 | 2. Bronze and Silver (Spark, Delta on S3) | **Done.** Kill-everything test: 0 lost, 0 duplicates |
 | 3. Streaming Gold (windows, trending, spikes) | **Done.** p95 end-to-end latency ≤ 30 s (target < 60 s) |
 | 4. dbt models and data quality | **Done.** `dbt build` 29/29 green, lineage docs, 2 GX suites |
-| 5. Airflow and monitoring | Not started |
-| 6. Public dashboard (GitHub Pages, DuckDB-WASM) | Not started; a live preview exists (below) |
+| 5. Airflow and monitoring | **Built.** 5 DAGs green, Prometheus + Grafana with alerts; 24 h unattended run pending |
+| 6. Public dashboard (GitHub Pages, DuckDB-WASM) | **Built locally.** Renders in 0.46 s; needs a GitHub remote (or R2) to publish |
 | 7. Hardening and write-up | Not started |
 
 ## Measured so far
@@ -27,6 +27,8 @@ A real-time data pipeline that streams every edit made across Wikipedia through 
 | End-to-end latency (edit → visible in Gold) | p50 ≤ 25 s, **p95 ≤ 30 s**, p99 ≤ 35 s (target < 60 s p95) | `make latency`, 5-min live window |
 | Gold exactly-once | 0 of 59,692 wiki-minutes differ from a Silver recount, across 2 OOM crashes mid-rebuild | `make audit-lake` |
 | Late events | none dropped: Silver and Gold use no watermarks, after a watermark silently dropped ~161k out-of-order backfill edits ([incident](docs/incidents/2026-10-20-silver-late-drops.md)) | Bronze vs Silver hourly counts |
+| Compaction (daily OPTIMIZE) | Bronze 9,439 → 3,157 files; Gold spikes 34 → 1, latency 201 → 1 | `delta_maintenance` DAG result |
+| Dashboard load | 0.46 s to fully rendered (local, warm); snapshot ~40 KB | `data-load-ms` on the page |
 | Schema rejects on live data | 0 of 500 sampled; 6 canary heartbeats in 3.8 h (now skipped) | `contracts/` validation, DLQ |
 
 ## Architecture so far
@@ -96,6 +98,24 @@ make reset-gold           # rebuild Gold from Silver after a Gold logic change
 make reset-silver         # rebuild Silver and Gold from Bronze after a Silver logic change
 make down                 # stop; data volumes are kept
 ```
+
+## Orchestration and monitoring
+
+| DAG | Schedule | What it does |
+|---|---|---|
+| `dbt_build` | every 15 min | source freshness → seed → run → snapshot → test |
+| `export_dashboard` | when `dbt_build`'s tests pass (Airflow Dataset) | Parquet snapshots + `manifest.json`, then publish |
+| `delta_maintenance` | daily 03:00 UTC | asks the Spark app to OPTIMIZE + VACUUM, waits for its result ([ADR 0006](docs/decisions/0006-maintenance-requests-and-lag-metrics.md)) |
+| `quality_report` | daily 04:30 UTC | Great Expectations suites → Data Docs |
+| `lake_audit` | hourly | Kafka → Bronze → Silver → Gold reconciliation; fails on any lost or duplicate event |
+
+- Airflow UI: http://127.0.0.1:8080 (user `admin`, password `AIRFLOW_ADMIN_PASSWORD` in `.env`)
+- Grafana: http://127.0.0.1:3000 (user `admin`, password `GRAFANA_ADMIN_PASSWORD`), the "WikiPulse pipeline" dashboard
+- Prometheus alerts: Bronze more than 5 min of data behind, stalled query, stale feed, p95 latency over 60 s, dead-letter events, failed maintenance
+
+## Public dashboard
+
+`dashboard/` is a static site: the panels read the exported Parquet with hyparquet, and **Explore with SQL** loads DuckDB-WASM on demand ([ADR 0007](docs/decisions/0007-dashboard-renders-with-hyparquet.md)). Preview it locally with `make export && cd dashboard && python3 -m http.server`. Publishing goes to Cloudflare R2 (`R2_*` settings) or a `data` branch (`DATA_BRANCH_REMOTE`), and `.github/workflows/pages.yml` deploys the site.
 
 ## Live preview app
 
