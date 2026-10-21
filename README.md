@@ -1,5 +1,7 @@
 # WikiPulse
 
+**Live dashboard: https://thejas3.github.io/wikipulse/**
+
 A real-time data pipeline that streams every edit made across Wikipedia through Kafka into a Bronze → Silver → Gold lakehouse, and serves live analytics on a public dashboard. The full plan is in the PRD; this README tracks what's built and the numbers measured so far.
 
 ## Status
@@ -11,7 +13,7 @@ A real-time data pipeline that streams every edit made across Wikipedia through 
 | 3. Streaming Gold (windows, trending, spikes) | **Done.** p95 end-to-end latency ≤ 30 s (target < 60 s) |
 | 4. dbt models and data quality | **Done.** `dbt build` 29/29 green, lineage docs, 2 GX suites |
 | 5. Airflow and monitoring | **Built.** 5 DAGs green, Prometheus + Grafana with alerts; 24 h unattended run pending |
-| 6. Public dashboard (GitHub Pages, DuckDB-WASM) | **Built locally.** Renders in 0.46 s; needs a GitHub remote (or R2) to publish |
+| 6. Public dashboard (GitHub Pages, DuckDB-WASM) | **Done.** Live at https://thejas3.github.io/wikipulse/, cold load < 0.8 s, refreshed every 15 min |
 | 7. Hardening and write-up | Not started |
 
 ## Measured so far
@@ -28,7 +30,7 @@ A real-time data pipeline that streams every edit made across Wikipedia through 
 | Gold exactly-once | 0 of 59,692 wiki-minutes differ from a Silver recount, across 2 OOM crashes mid-rebuild | `make audit-lake` |
 | Late events | none dropped: Silver and Gold use no watermarks, after a watermark silently dropped ~161k out-of-order backfill edits ([incident](docs/incidents/2026-10-20-silver-late-drops.md)) | Bronze vs Silver hourly counts |
 | Compaction (daily OPTIMIZE) | Bronze 9,439 → 3,157 files; Gold spikes 34 → 1, latency 201 → 1 | `delta_maintenance` DAG result |
-| Dashboard load | 0.46 s to fully rendered (local, warm); snapshot ~40 KB | `data-load-ms` on the page |
+| Dashboard load (cold cache, public URL) | 0.36–0.78 s to fully rendered (target < 3 s); snapshot ~40 KB | fresh Chrome profile per run, `data-load-ms` on the page |
 | Schema rejects on live data | 0 of 500 sampled; 6 canary heartbeats in 3.8 h (now skipped) | `contracts/` validation, DLQ |
 
 ## Architecture so far
@@ -115,7 +117,7 @@ make down                 # stop; data volumes are kept
 
 ## Public dashboard
 
-`dashboard/` is a static site: the panels read the exported Parquet with hyparquet, and **Explore with SQL** loads DuckDB-WASM on demand ([ADR 0007](docs/decisions/0007-dashboard-renders-with-hyparquet.md)). Preview it locally with `make export && cd dashboard && python3 -m http.server`. Publishing goes to Cloudflare R2 (`R2_*` settings) or a `data` branch (`DATA_BRANCH_REMOTE`), and `.github/workflows/pages.yml` deploys the site.
+`dashboard/` is a static site: the panels read the exported Parquet with hyparquet, and **Explore with SQL** loads DuckDB-WASM on demand ([ADR 0007](docs/decisions/0007-dashboard-renders-with-hyparquet.md)). Preview it locally with `make export && cd dashboard && python3 -m http.server`. Publishing goes to Cloudflare R2 (`R2_*` settings) or, as now, a `data` branch: after each passing dbt build, Airflow force-pushes the snapshot with a repo-scoped deploy key (`secrets/`, gitignored) and `.github/workflows/pages.yml` redeploys the site.
 
 ## Live preview app
 
