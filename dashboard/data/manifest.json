@@ -1,0 +1,44 @@
+{
+  "exported_at": "2026-10-24T12:31:33+00:00",
+  "data_as_of": "2026-10-24T06:26:12Z",
+  "latency_last_hour_seconds": {
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "events": 0
+  },
+  "last_dbt_run": {
+    "generated_at": "2026-10-24T12:28:51.308341Z",
+    "command": "test",
+    "passed": 21,
+    "failed": 0,
+    "warned": 0
+  },
+  "files": {
+    "edits_per_minute": {
+      "file": "edits_per_minute.parquet",
+      "rows": 0,
+      "bytes": 164
+    },
+    "trending": {
+      "file": "trending.parquet",
+      "rows": 0,
+      "bytes": 167
+    },
+    "spikes": {
+      "file": "spikes.parquet",
+      "rows": 374,
+      "bytes": 18445
+    },
+    "language_share": {
+      "file": "language_share.parquet",
+      "rows": 192,
+      "bytes": 3807
+    },
+    "vandalism": {
+      "file": "vandalism.parquet",
+      "rows": 0,
+      "bytes": 325
+    }
+  }
+}

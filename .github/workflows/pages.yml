@@ -1,0 +1,52 @@
+name: pages
+
+# Deploys the static dashboard. Data comes from one of two places (PRD §9):
+#   - Cloudflare R2: set the repository variable DASHBOARD_DATA_URL to the bucket's public URL;
+#     the page then reads it via ?data=, and this workflow only runs when the site changes.
+#   - Fallback: dashboard/publish.py force-pushes each snapshot to the `data` branch under
+#     dashboard/data/ (one commit, no history; the path keeps the paths filter below matching),
+#     and this workflow copies it into the site and redeploys.
+
+on:
+  push:
+    branches: [main, data]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Assemble site
+        run: |
+          mkdir -p site
+          cp dashboard/index.html dashboard/app.js site/
+          if [ -z "${{ vars.DASHBOARD_DATA_URL }}" ] && git ls-remote --exit-code origin data >/dev/null; then
+            git fetch --depth 1 origin data
+            git archive FETCH_HEAD dashboard/data | tar -x
+            cp -r dashboard/data site/data
+          fi
+          if [ -n "${{ vars.DASHBOARD_DATA_URL }}" ]; then
+            # Bake the R2 location in, so the plain URL works without ?data=.
+            sed -i 's#|| "./data/"#|| "${{ vars.DASHBOARD_DATA_URL }}"#' site/app.js
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
